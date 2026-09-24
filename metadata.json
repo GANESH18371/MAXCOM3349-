@@ -1,0 +1,6 @@
+{
+  "name": "Max",
+  "description": "Offline Voice & Quick Settings Controller for App Launching and Hardware Toggles",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

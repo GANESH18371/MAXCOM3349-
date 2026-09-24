@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Max</string>
+    <string name="voice_listening">Listening…</string>
+    <string name="voice_speak_prompt">Say "Open YouTube", "Torch on karo", or "WiFi band karo"</string>
+    <string name="voice_start_command">Tap mic to speak</string>
+    <string name="accessibility_active">Accessibility Active</string>
+    <string name="accessibility_inactive">Enable Accessibility</string>
+    <string name="accessibility_description">Required for toggling WiFi, Bluetooth, Mobile Data, and Hotspot via Quick Settings</string>
+</resources>
