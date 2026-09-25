@@ -8,6 +8,7 @@
 
     <!-- Audio recording for SpeechRecognizer -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Hardware controls -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -56,6 +57,16 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Notification Listener Service for WhatsApp Auto-Reply -->
+        <service
+            android:name=".service.WhatsAppNotificationListenerService"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
     </application>
 

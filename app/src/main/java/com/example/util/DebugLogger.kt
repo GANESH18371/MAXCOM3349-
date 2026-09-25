@@ -130,6 +130,39 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "WHATSAPP_MESSAGE_RECEIVED: sender=<naam>, text=<message>"
+     */
+    fun logWhatsAppMessageReceived(sender: String, text: String) {
+        val logLine = "WHATSAPP_MESSAGE_RECEIVED: sender=$sender, text=$text"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "WHATSAPP_REPLY_GENERATED: <reply-text>"
+     */
+    fun logWhatsAppReplyGenerated(replyText: String) {
+        val logLine = "WHATSAPP_REPLY_GENERATED: $replyText"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "WHATSAPP_REPLY_SENT: success/fail"
+     */
+    fun logWhatsAppReplySent(success: Boolean, details: String = "") {
+        val status = if (success) "success" else "fail"
+        val extra = if (details.isNotBlank()) " ($details)" else ""
+        val logLine = "WHATSAPP_REPLY_SENT: $status$extra"
+        if (success) {
+            safeLog(Log.INFO, TAG, logLine)
+        } else {
+            safeLog(Log.ERROR, TAG, logLine)
+        }
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

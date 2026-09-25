@@ -251,4 +251,23 @@ class ExampleUnitTest {
         val amb = resAmbiguous as com.example.manager.ContextResolutionResult.Ambiguous
         assertTrue(amb.message.contains("kiska matlab hai"))
     }
+
+    @Test
+    fun whatsAppAutoReply_logsCorrectly() {
+        DebugLogger.clearLogs()
+        DebugLogger.logWhatsAppMessageReceived("Amit Verma", "Kaha ho bhai?")
+        DebugLogger.logWhatsAppReplyGenerated("Main abhi thoda busy hoon, thodi der me baat karta hoon.")
+        DebugLogger.logWhatsAppReplySent(true, "Sent to Amit Verma")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "WHATSAPP_MESSAGE_RECEIVED: sender=Amit Verma, text=Kaha ho bhai?" })
+        assertTrue(logs.any { it.message == "WHATSAPP_REPLY_GENERATED: Main abhi thoda busy hoon, thodi der me baat karta hoon." })
+        assertTrue(logs.any { it.message.startsWith("WHATSAPP_REPLY_SENT: success") })
+    }
+
+    @Test
+    fun whatsAppAutoReply_defaultIsOff() {
+        // Must default to OFF as specified in requirements
+        assertEquals(false, com.example.manager.WhatsAppAutoReplyManager.isAutoReplyEnabled.value)
+    }
 }

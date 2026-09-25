@@ -173,6 +173,27 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         // =========================================================================
+        // STEP 0.5: WHATSAPP AUTO-REPLY VOICE CONTROL ("auto-reply on/off karo")
+        // =========================================================================
+        if (isAutoReplyCommand(lower)) {
+            val turnOffWords = listOf("off", "band", "disable", "stop", "बंद", "हटाओ", "rok", "bujhao")
+            val isOff = turnOffWords.any { lower.contains(it) }
+            val targetEnable = !isOff
+
+            val success = WhatsAppAutoReplyManager.setAutoReplyEnabled(context, targetEnable, announceWithTts = true)
+            if (targetEnable) {
+                if (success) {
+                    _voiceState.value = VoiceState.Success("WhatsApp Auto-Reply is ON")
+                } else {
+                    _voiceState.value = VoiceState.Error("Notification Access permission required for Auto-Reply")
+                }
+            } else {
+                _voiceState.value = VoiceState.Success("WhatsApp Auto-Reply is OFF")
+            }
+            return
+        }
+
+        // =========================================================================
         // STEP 1: HARDWARE TOGGLE COMMAND (VOLUME / TORCH / WIFI / etc.) [UNTOUCHED]
         // =========================================================================
         if (isHardwareCommand(lower)) {
@@ -234,6 +255,18 @@ class VoiceCommandManager(private val context: Context) {
                 AppContextManager.recordHardwareToggle(HardwareFeature.VOLUME, if (targetState == false) "Muted" else "UP")
             }
         }
+    }
+
+    /**
+     * Checks if the voice command is related to WhatsApp Auto-Reply
+     */
+    fun isAutoReplyCommand(lower: String): Boolean {
+        val keywords = listOf(
+            "auto reply", "auto-reply", "autoreply", "auto rply",
+            "ऑटो रिप्लाई", "ऑटो-रिप्लाई", "ऑटोरिप्लाई", "ऑटो रिप्लाय",
+            "whatsapp reply", "whatsapp auto", "व्हाट्सएप रिप्लाई", "व्हाट्सएप ऑटो"
+        )
+        return keywords.any { lower.contains(it) }
     }
 
     /**

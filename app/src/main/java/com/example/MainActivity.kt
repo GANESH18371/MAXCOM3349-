@@ -16,6 +16,7 @@ class MainActivity : ComponentActivity() {
 
         // Initialize local hardware managers
         HardwareToggleManager.initTorch(this)
+        com.example.util.TtsManager.init(this)
         DebugLogger.logInfo("Max Assistant Initialized (100% Local / Offline)")
 
         setContent {

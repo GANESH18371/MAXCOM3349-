@@ -175,6 +175,67 @@ class MaxAccessibilityService : AccessibilityService() {
         return null
     }
 
+    /**
+     * Finds WhatsApp chat input, sets the generated reply text, and clicks Send.
+     */
+    fun sendWhatsAppMessage(targetSender: String, replyText: String): Boolean {
+        try {
+            val root = rootInActiveWindow ?: return false
+
+            // 1. Look for EditText node to type into
+            val editTextNode = findEditTextNode(root)
+            if (editTextNode != null) {
+                val args = android.os.Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, replyText)
+                }
+                val textSet = editTextNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                if (textSet) {
+                    // Look for send button
+                    serviceScope.launch {
+                        delay(200)
+                        val sendBtn = findSendButton(rootInActiveWindow ?: root)
+                        if (sendBtn != null) {
+                            sendBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            DebugLogger.logInfo("Accessibility: Clicked Send in WhatsApp for $targetSender")
+                        }
+                    }
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error in sendWhatsAppMessage via accessibility", e)
+        }
+        return false
+    }
+
+    private fun findEditTextNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.className?.toString()?.contains("EditText", ignoreCase = true) == true) {
+            return node
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            val result = findEditTextNode(child)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun findSendButton(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        val desc = node.contentDescription?.toString()?.lowercase(Locale.getDefault()) ?: ""
+        val id = node.viewIdResourceName?.lowercase(Locale.getDefault()) ?: ""
+        if (desc.contains("send") || desc.contains("भेजें") || id.contains("send")) {
+            return findClickableAncestorOrSelf(node) ?: node
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            val result = findSendButton(child)
+            if (result != null) return result
+        }
+        return null
+    }
+
     private fun resetSearch() {
         isSearching = false
         pendingTargetKeywords = null

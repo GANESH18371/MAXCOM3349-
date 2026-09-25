@@ -72,6 +72,7 @@ import com.example.ui.components.AppLauncherSection
 import com.example.ui.components.DebugLogConsole
 import com.example.ui.components.HardwareToggleGrid
 import com.example.ui.components.MicButton
+import com.example.ui.components.WhatsAppAutoReplyCard
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkOutline
@@ -135,7 +136,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 tonalElevation = 0.dp,
                 modifier = Modifier.border(1.dp, DarkOutline.copy(alpha = 0.5f), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             ) {
-                val tabs = listOf("Dashboard", "Hardware", "Apps", "Logs")
+                val tabs = listOf("Dashboard", "Hardware", "WhatsApp", "Apps", "Logs")
                 tabs.forEachIndexed { index, title ->
                     NavigationBarItem(
                         selected = selectedTab == index,
@@ -147,6 +148,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                                     0 -> Icons.Default.Bolt
                                     1 -> Icons.Default.SettingsAccessibility
                                     2 -> Icons.Default.Mic
+                                    3 -> Icons.Default.Bolt
                                     else -> Icons.Default.Bolt
                                 },
                                 contentDescription = title,
@@ -222,6 +224,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // WhatsApp Auto-Reply Section
+                    WhatsAppAutoReplyCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     // Hardware Controls Grid
                     HardwareToggleGrid(
                         isAccessibilityEnabled = isAccessibilityActive,
@@ -253,13 +260,19 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     DebugLogConsole()
                 }
                 2 -> {
-                    // TAB 2: APPS FOCUS
-                    AppLauncherSection()
+                    // TAB 2: WHATSAPP AUTO-REPLY FOCUS
+                    WhatsAppAutoReplyCard()
                     Spacer(modifier = Modifier.height(16.dp))
                     DebugLogConsole()
                 }
                 3 -> {
-                    // TAB 3: LOGS ONLY
+                    // TAB 3: APPS FOCUS
+                    AppLauncherSection()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                4 -> {
+                    // TAB 4: LOGS ONLY
                     DebugLogConsole()
                 }
             }
@@ -504,16 +517,16 @@ private fun VoiceControlCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             val sampleCommands = listOf(
+                "auto-reply on karo",
+                "auto-reply band karo",
                 "यूट्यूब खोलो",
                 "इसका वॉल्यूम बढ़ाओ",
                 "Torch on karo",
                 "isko band karo",
-                "wahi kholo",
                 "वॉल्यूम बढ़ाओ 60%",
                 "आवाज़ कम करो",
                 "क्रोम खोलो",
-                "WiFi band karo",
-                "chup karo"
+                "WiFi band karo"
             )
 
             FlowRow(
