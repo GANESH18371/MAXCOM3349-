@@ -104,14 +104,86 @@ class VoiceCommandManager(private val context: Context) {
 
         val lower = trimmed.lowercase(Locale.getDefault())
 
-        // 1. Check if it's a Hardware Toggle Command
+        // =========================================================================
+        // STEP 0: CONTEXT AWARENESS LAYER (Added on top of existing working logic)
+        // =========================================================================
+        val currentApp = AppContextManager.getCurrentApp()
+        DebugLogger.logContextCurrentApp(currentApp?.name)
+
+        val isVol = isVolumeCommand(lower)
+        val isHw = isHardwareCommand(lower) && !isVol
+
+        val contextResult = AppContextManager.resolveContext(lower, isVolume = isVol, hasHardwareName = isHw)
+
+        when (contextResult) {
+            is ContextResolutionResult.ResolvedVolume -> {
+                DebugLogger.logContextUsed(true, contextResult.description)
+                val parsed = contextResult.parsed
+                HardwareToggleManager.adjustVolume(context, parsed.action, parsed.explicitPercent)
+                AppContextManager.recordHardwareToggle(
+                    HardwareFeature.VOLUME,
+                    if (parsed.explicitPercent != null) "Set to ${parsed.explicitPercent}%" else parsed.action.name
+                )
+                _voiceState.value = VoiceState.Success("Volume adjusted (${contextResult.description})")
+                return
+            }
+            is ContextResolutionResult.ResolvedHardware -> {
+                DebugLogger.logContextUsed(true, contextResult.description)
+                executeResolvedHardwareToggle(contextResult.feature, contextResult.targetState)
+                _voiceState.value = VoiceState.Success(contextResult.description)
+                return
+            }
+            is ContextResolutionResult.ResolvedAppOpen -> {
+                DebugLogger.logContextUsed(true, contextResult.description)
+                val launched = AppOpenManager.launchApp(context, contextResult.app)
+                if (launched) {
+                    AppContextManager.recordAppOpen(contextResult.app)
+                    DebugLogger.logLaunch(true, contextResult.app.name)
+                    _voiceState.value = VoiceState.Success("App opened: ${contextResult.app.name}")
+                } else {
+                    DebugLogger.logLaunch(false, "Could not open ${contextResult.app.name}")
+                    _voiceState.value = VoiceState.Error("Could not open ${contextResult.app.name}")
+                }
+                return
+            }
+            is ContextResolutionResult.ResolvedAppClose -> {
+                DebugLogger.logContextUsed(true, contextResult.description)
+                try {
+                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_HOME)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(homeIntent)
+                    DebugLogger.logInfo("Navigated to Home to close ${contextResult.app.name}")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error closing app via home intent", e)
+                }
+                _voiceState.value = VoiceState.Success("Closed ${contextResult.app.name}")
+                return
+            }
+            is ContextResolutionResult.Ambiguous -> {
+                DebugLogger.logContextUsed(false, "Ambiguous: No active context")
+                _voiceState.value = VoiceState.Error(contextResult.message)
+                return
+            }
+            is ContextResolutionResult.NoReference -> {
+                // Command contains no referring pronouns / ambiguous action; proceed to standard handlers
+                DebugLogger.logContextUsed(false)
+            }
+        }
+
+        // =========================================================================
+        // STEP 1: HARDWARE TOGGLE COMMAND (VOLUME / TORCH / WIFI / etc.) [UNTOUCHED]
+        // =========================================================================
         if (isHardwareCommand(lower)) {
-            handleHardwareVoiceCommand(lower)
+            handleHardwareVoiceCommand(lower, trimmed)
             _voiceState.value = VoiceState.Success("Hardware action triggered for \"$trimmed\"")
             return
         }
 
-        // 2. Otherwise it's an App Open Command!
+        // =========================================================================
+        // STEP 2: APP OPEN COMMAND (Devanagari / Phonetic / Fuzzy Match) [UNTOUCHED]
+        // =========================================================================
         val launched = AppOpenManager.processAndLaunch(context, trimmed)
         if (launched) {
             _voiceState.value = VoiceState.Success("App opened for \"$trimmed\"")
@@ -120,23 +192,107 @@ class VoiceCommandManager(private val context: Context) {
         }
     }
 
-    private fun isHardwareCommand(lower: String): Boolean {
+    /**
+     * Executes resolved hardware toggle and records into ContextManager
+     */
+    fun executeResolvedHardwareToggle(feature: HardwareFeature, targetState: Boolean?) {
+        when (feature) {
+            HardwareFeature.TORCH -> {
+                HardwareToggleManager.toggleTorch(context, targetState)
+                AppContextManager.recordHardwareToggle(HardwareFeature.TORCH, if (targetState == true) "ON" else "OFF", targetState)
+            }
+            HardwareFeature.WIFI -> {
+                HardwareToggleManager.toggleWifi(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.WIFI, if (targetState == true) "ON" else "OFF", targetState)
+            }
+            HardwareFeature.BLUETOOTH -> {
+                HardwareToggleManager.toggleBluetooth(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.BLUETOOTH, if (targetState == true) "ON" else "OFF", targetState)
+            }
+            HardwareFeature.MOBILE_DATA -> {
+                HardwareToggleManager.toggleMobileData(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.MOBILE_DATA, if (targetState == true) "ON" else "OFF", targetState)
+            }
+            HardwareFeature.HOTSPOT -> {
+                HardwareToggleManager.toggleHotspot(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.HOTSPOT, if (targetState == true) "ON" else "OFF", targetState)
+            }
+            HardwareFeature.BRIGHTNESS -> {
+                HardwareToggleManager.toggleBrightness(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.BRIGHTNESS, "Toggled")
+            }
+            HardwareFeature.DND -> {
+                HardwareToggleManager.toggleDnd(context, targetState)
+                AppContextManager.recordHardwareToggle(HardwareFeature.DND, if (targetState == true) "ON" else "OFF", targetState)
+            }
+            HardwareFeature.AIRPLANE_MODE -> {
+                HardwareToggleManager.toggleAirplaneMode(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.AIRPLANE_MODE, if (targetState == true) "ON" else "OFF", targetState)
+            }
+            HardwareFeature.VOLUME -> {
+                HardwareToggleManager.adjustVolume(context, if (targetState == false) VolumeAction.MUTE else VolumeAction.UP)
+                AppContextManager.recordHardwareToggle(HardwareFeature.VOLUME, if (targetState == false) "Muted" else "UP")
+            }
+        }
+    }
+
+    /**
+     * Checks if the voice command is related to Volume / Audio
+     */
+    fun isVolumeCommand(lower: String): Boolean {
+        val volumeIndicators = listOf(
+            // English
+            "volume", "sound", "audio", "mute", "unmute", "louder", "softer", "quieter",
+            // Hinglish / Roman Hindi
+            "awaz", "aawaz", "awaaz", "awaj", "aawaaj", "chup", "shant",
+            // Devanagari Hindi
+            "वॉल्यूम", "वोल्यूम", "वॉल्युम", "वॉलयूम", "बोल्यूम",
+            "आवाज", "आवाज़", "साउंड", "ऑडियो",
+            "म्यूट", "अनम्यूट", "चुप करो", "चुप", "शांत"
+        )
+        return volumeIndicators.any { lower.contains(it) }
+    }
+
+    /**
+     * Checks if the command matches any hardware toggle keyword
+     */
+    fun isHardwareCommand(lower: String): Boolean {
+        if (isVolumeCommand(lower)) return true
+
         val hardwareKeywords = listOf(
-            "wifi", "wi-fi", "वाई-फाई", "वाईफाई",
-            "bluetooth", "ब्लूटूथ",
-            "mobile data", "data on", "data off", "data band", "data chalu", "डेटा",
-            "hotspot", "हॉटस्पॉट", "tethering",
-            "torch", "flashlight", "टॉर्च", "फ्लैशलाइट",
-            "volume", "sound", "awaz", "आवाज", "आवाज़", "mute",
-            "brightness", "screen light", "chamak", "ब्राइटनेस", "रोशनी",
-            "dnd", "do not disturb", "silent",
-            "airplane", "flight mode", "हवाई मोड"
+            // WiFi
+            "wifi", "wi-fi", "वाई-फाई", "वाईफाई", "wlan", "इंटरनेट", "internet",
+            // Bluetooth
+            "bluetooth", "ब्लूटूथ", "bt",
+            // Mobile Data
+            "mobile data", "data on", "data off", "data band", "data chalu", "डेटा", "cellular", "net on", "net off",
+            // Hotspot
+            "hotspot", "हॉटस्पॉट", "tethering", "पर्सनल हॉटस्पॉट",
+            // Torch / Flashlight
+            "torch", "flashlight", "टॉर्च", "फ्लैशलाइट", "flash", "light on", "light off", "लाइट",
+            // Brightness
+            "brightness", "screen light", "chamak", "ब्राइटनेस", "रोशनी", "स्क्रीन लाइट", "चमक",
+            // DND
+            "dnd", "do not disturb", "डू नॉट डिस्टर्ब",
+            // Airplane Mode
+            "airplane", "flight mode", "हवाई मोड", "aeroplane", "flight", "एयरप्लेन"
         )
         return hardwareKeywords.any { lower.contains(it) }
     }
 
-    private fun handleHardwareVoiceCommand(lower: String) {
-        val turnOffWords = listOf("off", "band", "close", "disable", "stop", "बंद", "हटाओ", "rok")
+    private fun handleHardwareVoiceCommand(lower: String, originalText: String) {
+        // Priority 1: Volume Commands (DIRECT API)
+        if (isVolumeCommand(lower)) {
+            val parsed = HardwareToggleManager.parseVolumeCommand(lower)
+            HardwareToggleManager.adjustVolume(context, parsed.action, parsed.explicitPercent)
+            AppContextManager.recordHardwareToggle(
+                HardwareFeature.VOLUME,
+                if (parsed.explicitPercent != null) "Set to ${parsed.explicitPercent}%" else parsed.action.name
+            )
+            return
+        }
+
+        val turnOffWords = listOf("off", "band", "close", "disable", "stop", "बंद", "हटाओ", "rok", "bujhao", "बुझाओ")
         val isExplicitOff = turnOffWords.any { lower.contains(it) }
         val turnOnWords = listOf("on", "chalu", "open", "enable", "start", "चालू", "जलाओ", "on karo")
         val isExplicitOn = turnOnWords.any { lower.contains(it) }
@@ -149,56 +305,45 @@ class VoiceCommandManager(private val context: Context) {
 
         when {
             // Torch
-            lower.contains("torch") || lower.contains("flashlight") || lower.contains("टॉर्च") || lower.contains("फ्लैशलाइट") -> {
+            lower.contains("torch") || lower.contains("flashlight") || lower.contains("टॉर्च") || lower.contains("फ्लैशलाइट") || lower.contains("flash") || lower.contains("लाइट") -> {
                 HardwareToggleManager.toggleTorch(context, targetState)
+                AppContextManager.recordHardwareToggle(HardwareFeature.TORCH, if (targetState == false) "OFF" else "ON", targetState)
             }
             // WiFi
-            lower.contains("wifi") || lower.contains("wi-fi") || lower.contains("वाई-फाई") || lower.contains("वाईफाई") -> {
+            lower.contains("wifi") || lower.contains("wi-fi") || lower.contains("वाई-फाई") || lower.contains("वाईफाई") || lower.contains("wlan") -> {
                 HardwareToggleManager.toggleWifi(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.WIFI, if (targetState == false) "OFF" else "ON", targetState)
             }
             // Bluetooth
-            lower.contains("bluetooth") || lower.contains("ब्लूटूथ") -> {
+            lower.contains("bluetooth") || lower.contains("ब्लूटूथ") || lower.contains("bt") -> {
                 HardwareToggleManager.toggleBluetooth(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.BLUETOOTH, if (targetState == false) "OFF" else "ON", targetState)
             }
             // Mobile Data
-            lower.contains("data") || lower.contains("डेटा") || lower.contains("net") -> {
+            lower.contains("data") || lower.contains("डेटा") || lower.contains("cellular") || lower.contains("net") -> {
                 HardwareToggleManager.toggleMobileData(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.MOBILE_DATA, if (targetState == false) "OFF" else "ON", targetState)
             }
             // Hotspot
-            lower.contains("hotspot") || lower.contains("हॉटस्पॉट") -> {
+            lower.contains("hotspot") || lower.contains("हॉटस्पॉट") || lower.contains("tethering") -> {
                 HardwareToggleManager.toggleHotspot(context)
-            }
-            // Volume
-            lower.contains("volume") || lower.contains("sound") || lower.contains("awaz") || lower.contains("आवाज") -> {
-                when {
-                    lower.contains("up") || lower.contains("badhao") || lower.contains("badao") || lower.contains("jyada") || lower.contains("बढ़ाओ") -> {
-                        HardwareToggleManager.adjustVolume(context, VolumeAction.UP)
-                    }
-                    lower.contains("down") || lower.contains("kam") || lower.contains("ghatao") || lower.contains("कम") -> {
-                        HardwareToggleManager.adjustVolume(context, VolumeAction.DOWN)
-                    }
-                    lower.contains("mute") || lower.contains("silent") || lower.contains("band") -> {
-                        HardwareToggleManager.adjustVolume(context, VolumeAction.MUTE)
-                    }
-                    lower.contains("max") || lower.contains("full") || lower.contains("100") -> {
-                        HardwareToggleManager.adjustVolume(context, VolumeAction.MAX)
-                    }
-                    else -> {
-                        HardwareToggleManager.adjustVolume(context, VolumeAction.UP)
-                    }
-                }
+                AppContextManager.recordHardwareToggle(HardwareFeature.HOTSPOT, if (targetState == false) "OFF" else "ON", targetState)
             }
             // Brightness
-            lower.contains("brightness") || lower.contains("screen light") || lower.contains("chamak") || lower.contains("ब्राइटनेस") -> {
-                HardwareToggleManager.toggleBrightness(context)
+            lower.contains("brightness") || lower.contains("screen light") || lower.contains("chamak") || lower.contains("ब्राइटनेस") || lower.contains("रोशनी") || lower.contains("चमक") -> {
+                val parsed = HardwareToggleManager.parseVolumeCommand(lower) // extracts percentage if any
+                HardwareToggleManager.toggleBrightness(context, parsed.explicitPercent)
+                AppContextManager.recordHardwareToggle(HardwareFeature.BRIGHTNESS, if (parsed.explicitPercent != null) "${parsed.explicitPercent}%" else "Toggled")
             }
             // DND
-            lower.contains("dnd") || lower.contains("disturb") || lower.contains("silent") -> {
+            lower.contains("dnd") || lower.contains("disturb") || lower.contains("डिस्टर्ब") -> {
                 HardwareToggleManager.toggleDnd(context, targetState)
+                AppContextManager.recordHardwareToggle(HardwareFeature.DND, if (targetState == false) "OFF" else "ON", targetState)
             }
             // Airplane Mode
-            lower.contains("airplane") || lower.contains("flight") || lower.contains("हवाई मोड") -> {
+            lower.contains("airplane") || lower.contains("flight") || lower.contains("हवाई मोड") || lower.contains("aeroplane") -> {
                 HardwareToggleManager.toggleAirplaneMode(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.AIRPLANE_MODE, if (targetState == false) "OFF" else "ON", targetState)
             }
         }
     }

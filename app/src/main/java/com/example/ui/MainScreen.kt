@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.example.manager.AppContextManager
 import com.example.manager.VoiceCommandManager
 import com.example.manager.VoiceState
 import com.example.service.MaxAccessibilityService
@@ -436,6 +437,8 @@ private fun VoiceControlCard(
     onMicClick: () -> Unit,
     onQuickCommand: (String) -> Unit
 ) {
+    val contextState by AppContextManager.contextState.collectAsState()
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
@@ -454,11 +457,45 @@ private fun VoiceControlCard(
                 onMicClick = onMicClick
             )
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Context Awareness Info Pill
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(DarkSurfaceVariant, RoundedCornerShape(8.dp))
+                    .border(1.dp, DarkOutline.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "Active Context: ",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted
+                )
+                val activeAppName = contextState.currentActiveApp?.name
+                val lastToggleName = contextState.lastHardwareAction?.feature?.displayName
+                val contextLabel = when {
+                    activeAppName != null && lastToggleName != null -> "App: $activeAppName | Last Toggle: $lastToggleName"
+                    activeAppName != null -> "App: $activeAppName"
+                    lastToggleName != null -> "Toggle: $lastToggleName"
+                    else -> "None (Say 'YouTube kholo' or 'Torch on')"
+                }
+                Text(
+                    text = contextLabel,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (activeAppName != null || lastToggleName != null) CyberCyan else TextSecondary
+                )
+            }
+
             Spacer(modifier = Modifier.height(14.dp))
 
             // Quick Example Command Chips
             Text(
-                text = "Voice command test chips (English / Hindi):",
+                text = "Voice command test chips (English / Hindi / Context):",
                 fontSize = 10.sp,
                 color = TextMuted,
                 fontWeight = FontWeight.Medium
@@ -467,14 +504,16 @@ private fun VoiceControlCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             val sampleCommands = listOf(
-                "Max suno YouTube kholo",
+                "यूट्यूब खोलो",
+                "इसका वॉल्यूम बढ़ाओ",
                 "Torch on karo",
+                "isko band karo",
+                "wahi kholo",
+                "वॉल्यूम बढ़ाओ 60%",
+                "आवाज़ कम करो",
+                "क्रोम खोलो",
                 "WiFi band karo",
-                "Bluetooth on karo",
-                "Volume badhao",
-                "Brightness kam karo",
-                "Hey Max open Chrome please",
-                "DND on karo"
+                "chup karo"
             )
 
             FlowRow(

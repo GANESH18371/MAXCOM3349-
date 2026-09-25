@@ -1,7 +1,10 @@
 package com.example
 
+import com.example.manager.AppContextManager
 import com.example.manager.AppOpenManager
+import com.example.manager.HardwareToggleManager
 import com.example.manager.InstalledApp
+import com.example.manager.VolumeAction
 import com.example.util.DebugLogger
 import com.example.util.ToggleMethod
 import org.junit.Assert.assertEquals
@@ -113,17 +116,139 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun parseVolumeCommand_correctlyParsesActionsAndPercentages() {
+        // 1. "वॉल्यूम बढ़ाओ" -> INCREASE
+        val v1 = HardwareToggleManager.parseVolumeCommand("वॉल्यूम बढ़ाओ")
+        assertEquals(com.example.manager.VolumeAction.UP, v1.action)
+        assertEquals(null, v1.explicitPercent)
+
+        // 2. "वॉल्यूम कम करो" -> DECREASE
+        val v2 = HardwareToggleManager.parseVolumeCommand("वॉल्यूम कम करो")
+        assertEquals(com.example.manager.VolumeAction.DOWN, v2.action)
+        assertEquals(null, v2.explicitPercent)
+
+        // 3. "volume up" / "volume badhao" -> INCREASE
+        val v3 = HardwareToggleManager.parseVolumeCommand("volume up")
+        assertEquals(com.example.manager.VolumeAction.UP, v3.action)
+        assertEquals(null, v3.explicitPercent)
+
+        val v4 = HardwareToggleManager.parseVolumeCommand("volume badhao")
+        assertEquals(com.example.manager.VolumeAction.UP, v4.action)
+        assertEquals(null, v4.explicitPercent)
+
+        // 4. "volume down" / "volume kam karo" -> DECREASE
+        val v5 = HardwareToggleManager.parseVolumeCommand("volume down")
+        assertEquals(com.example.manager.VolumeAction.DOWN, v5.action)
+        assertEquals(null, v5.explicitPercent)
+
+        val v6 = HardwareToggleManager.parseVolumeCommand("volume kam karo")
+        assertEquals(com.example.manager.VolumeAction.DOWN, v6.action)
+        assertEquals(null, v6.explicitPercent)
+
+        // 5. "आवाज़ बढ़ाओ" / "आवाज़ कम करो"
+        val v7 = HardwareToggleManager.parseVolumeCommand("आवाज़ बढ़ाओ")
+        assertEquals(com.example.manager.VolumeAction.UP, v7.action)
+
+        val v8 = HardwareToggleManager.parseVolumeCommand("आवाज़ कम करो")
+        assertEquals(com.example.manager.VolumeAction.DOWN, v8.action)
+
+        // 6. "वॉल्यूम म्यूट करो" / "volume mute" / "chup karo" -> MUTE
+        val v9 = HardwareToggleManager.parseVolumeCommand("वॉल्यूम म्यूट करो")
+        assertEquals(com.example.manager.VolumeAction.MUTE, v9.action)
+
+        val v10 = HardwareToggleManager.parseVolumeCommand("volume mute")
+        assertEquals(com.example.manager.VolumeAction.MUTE, v10.action)
+
+        val v11 = HardwareToggleManager.parseVolumeCommand("chup karo")
+        assertEquals(com.example.manager.VolumeAction.MUTE, v11.action)
+
+        // 7. Explicit percentage: "वॉल्यूम बढ़ाओ 60%" / "volume 80 percent" / "आवाज 50%"
+        val v12 = HardwareToggleManager.parseVolumeCommand("वॉल्यूम बढ़ाओ 60%")
+        assertEquals(60, v12.explicitPercent)
+
+        val v13 = HardwareToggleManager.parseVolumeCommand("volume 80 percent")
+        assertEquals(80, v13.explicitPercent)
+
+        val v14 = HardwareToggleManager.parseVolumeCommand("आवाज 50%")
+        assertEquals(50, v14.explicitPercent)
+
+        val v15 = HardwareToggleManager.parseVolumeCommand("वॉल्यूम 75 प्रतिशत")
+        assertEquals(75, v15.explicitPercent)
+    }
+
+    @Test
     fun debugLogger_recordsLogsProperly() {
         DebugLogger.clearLogs()
         DebugLogger.logMatch(true, "YouTube (com.google.android.youtube)")
         DebugLogger.logLaunch(true, "YouTube")
         DebugLogger.logToggleAttempt("WiFi", ToggleMethod.ACCESSIBILITY)
         DebugLogger.logToggleResult(true)
+        DebugLogger.logContextCurrentApp("YouTube")
+        DebugLogger.logContextUsed(true, "Resolved iska -> YouTube")
 
         val logs = DebugLogger.logs.value
         assertTrue(logs.any { it.message.startsWith("APP_OPEN_MATCH: found") })
         assertTrue(logs.any { it.message.startsWith("APP_OPEN_LAUNCH: success") })
         assertTrue(logs.any { it.message.startsWith("TOGGLE_ATTEMPT: WiFi, method=ACCESSIBILITY") })
         assertTrue(logs.any { it.message.startsWith("TOGGLE_RESULT: success") })
+        assertTrue(logs.any { it.message.startsWith("CONTEXT_CURRENT_APP: YouTube") })
+        assertTrue(logs.any { it.message.startsWith("CONTEXT_USED: true") })
+    }
+
+    @Test
+    fun appContextManager_tracksAppOpenAndHardwareToggle() {
+        AppContextManager.clearMemory()
+        val app = InstalledApp("YouTube", "com.google.android.youtube")
+        AppContextManager.recordAppOpen(app)
+
+        assertEquals("YouTube", AppContextManager.getCurrentApp()?.name)
+        assertEquals(1, AppContextManager.getRecentInteractions().size)
+
+        AppContextManager.recordHardwareToggle(com.example.manager.HardwareFeature.TORCH, "ON", true)
+        assertEquals(com.example.manager.HardwareFeature.TORCH, AppContextManager.getLastHardwareAction()?.feature)
+        assertEquals(2, AppContextManager.getRecentInteractions().size)
+    }
+
+    @Test
+    fun contextResolution_resolvesReferringWordsWithContext() {
+        AppContextManager.clearMemory()
+        val app = InstalledApp("YouTube", "com.google.android.youtube")
+        AppContextManager.recordAppOpen(app)
+
+        // 1. "YouTube kholo" ke baad "इसका वॉल्यूम बढ़ाओ" / "iska volume badhao"
+        val res1 = AppContextManager.resolveContext("इसका वॉल्यूम बढ़ाओ", isVolume = true, hasHardwareName = false)
+        assertTrue(res1 is com.example.manager.ContextResolutionResult.ResolvedVolume)
+
+        val res2 = AppContextManager.resolveContext("iska volume badhao", isVolume = true, hasHardwareName = false)
+        assertTrue(res2 is com.example.manager.ContextResolutionResult.ResolvedVolume)
+
+        // 2. Hardware toggle followed by "isko band karo"
+        AppContextManager.recordHardwareToggle(com.example.manager.HardwareFeature.TORCH, "ON", true)
+        val res3 = AppContextManager.resolveContext("isko band karo", isVolume = false, hasHardwareName = false)
+        assertTrue(res3 is com.example.manager.ContextResolutionResult.ResolvedHardware)
+        val hwRes = res3 as com.example.manager.ContextResolutionResult.ResolvedHardware
+        assertEquals(com.example.manager.HardwareFeature.TORCH, hwRes.feature)
+        assertEquals(false, hwRes.targetState)
+
+        // 3. "wahi kholo" / "yeh wala open karo" after app was opened
+        AppContextManager.recordAppOpen(app)
+        val res4 = AppContextManager.resolveContext("wahi kholo", isVolume = false, hasHardwareName = false)
+        assertTrue(res4 is com.example.manager.ContextResolutionResult.ResolvedAppOpen)
+        val appRes = res4 as com.example.manager.ContextResolutionResult.ResolvedAppOpen
+        assertEquals("YouTube", appRes.app.name)
+
+        val res5 = AppContextManager.resolveContext("yeh wala open karo", isVolume = false, hasHardwareName = false)
+        assertTrue(res5 is com.example.manager.ContextResolutionResult.ResolvedAppOpen)
+    }
+
+    @Test
+    fun contextResolution_clarifiesWhenNoContextAvailable() {
+        AppContextManager.clearMemory()
+
+        // With no context, ambiguous command "isko band karo" or "wahi chalao" should ask "kiska matlab hai?"
+        val resAmbiguous = AppContextManager.resolveContext("isko band karo", isVolume = false, hasHardwareName = false)
+        assertTrue(resAmbiguous is com.example.manager.ContextResolutionResult.Ambiguous)
+        val amb = resAmbiguous as com.example.manager.ContextResolutionResult.Ambiguous
+        assertTrue(amb.message.contains("kiska matlab hai"))
     }
 }

@@ -535,6 +535,7 @@ object AppOpenManager {
             DebugLogger.logMatch(true, "${matchedApp.name} [${matchedApp.packageName}]")
             val launched = launchApp(context, matchedApp)
             if (launched) {
+                AppContextManager.recordAppOpen(matchedApp)
                 DebugLogger.logLaunch(true, matchedApp.name)
             } else {
                 DebugLogger.logLaunch(false, "Could not start activity for ${matchedApp.packageName}")

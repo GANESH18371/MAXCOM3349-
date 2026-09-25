@@ -19,6 +19,7 @@ import android.util.Log
 import com.example.service.MaxAccessibilityService
 import com.example.util.DebugLogger
 import com.example.util.ToggleMethod
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +43,11 @@ enum class VolumeAction {
     UNMUTE,
     MAX
 }
+
+data class VolumeCommandParsed(
+    val action: VolumeAction,
+    val explicitPercent: Int? = null
+)
 
 object HardwareToggleManager {
     private const val TAG = "HardwareToggleManager"
@@ -123,23 +129,103 @@ object HardwareToggleManager {
     }
 
     /**
-     * Volume Controls (DIRECT API)
+     * Parse Volume Command to determine action and explicit percentage (if any).
+     * Supports English, Devanagari Hindi, and Hinglish.
      */
-    fun adjustVolume(context: Context, action: VolumeAction): Boolean {
-        DebugLogger.logToggleAttempt("Volume (${action.name})", ToggleMethod.DIRECT)
+    fun parseVolumeCommand(rawCommand: String): VolumeCommandParsed {
+        val lower = rawCommand.lowercase(Locale.getDefault())
+
+        // 1. Normalize Devanagari numerals to standard ASCII digits
+        val devanagariDigits = "०१२३४५६७८९"
+        val normalized = buildString {
+            for (ch in lower) {
+                val idx = devanagariDigits.indexOf(ch)
+                if (idx != -1) append(idx) else append(ch)
+            }
+        }
+
+        // 2. Extract percentage or target volume numbers (0-100)
+        // Matches "60%", "60 %", "60 percent", "60 प्रतिशत", "60 परसेंट", or numbers next to volume words
+        val numberRegex = Regex("""(\d{1,3})\s*(%|percent|प्रतिशत|परसेंट|प्रति\s*शत)?""")
+        val matches = numberRegex.findAll(normalized).toList()
+        var explicitPercent: Int? = null
+
+        for (m in matches) {
+            val num = m.groupValues[1].toIntOrNull()
+            if (num != null && num in 0..100) {
+                explicitPercent = num
+                break
+            }
+        }
+
+        // 3. Determine specific action type
+        val isMute = listOf(
+            "mute", "म्यूट", "चुप", "chup", "शांत", "shant", "silent", "साइलेंट",
+            "band", "off", "बंद", "चुप करो", "आवाज बंद", "आवाज़ बंद", "वॉल्यूम बंद"
+        ).any { lower.contains(it) }
+
+        val isUnmute = listOf("unmute", "अनम्यूट", "un-mute").any { lower.contains(it) }
+
+        val isMax = listOf("max", "full", "फुल", "मैक्स", "100%", "100 %", "100").any { lower.contains(it) }
+
+        val isDown = listOf(
+            "down", "kam", "kam karo", "kam kar", "ghatao", "घटाओ", "घटा", "कम",
+            "कम करो", "कम कर", "धीमे", "dheeme", "decrease", "lower", "reduce", "softer", "quieter"
+        ).any { lower.contains(it) }
+
+        val isUp = listOf(
+            "up", "badhao", "badha", "badao", "jyada", "बढ़ाओ", "बढ़ा", "बढ़ाओ", "बढ़ाइए",
+            "बढ़ा दो", "बढ़ा दे", "tez", "तेज़", "तेज", "increase", "raise", "high", "louder"
+        ).any { lower.contains(it) }
+
+        val action = when {
+            explicitPercent != null -> VolumeAction.UP
+            isMute -> VolumeAction.MUTE
+            isUnmute -> VolumeAction.UNMUTE
+            isMax -> VolumeAction.MAX
+            isDown -> VolumeAction.DOWN
+            isUp -> VolumeAction.UP
+            else -> VolumeAction.UP
+        }
+
+        return VolumeCommandParsed(action = action, explicitPercent = explicitPercent)
+    }
+
+    /**
+     * Volume Controls (DIRECT API)
+     * Directly uses AudioManager without Accessibility tap or special permissions.
+     * Logs:
+     * TOGGLE_ATTEMPT: Volume, method=DIRECT
+     * TOGGLE_RESULT: success (Set to X%)
+     */
+    fun adjustVolume(context: Context, action: VolumeAction, explicitPercent: Int? = null): Boolean {
+        DebugLogger.logToggleAttempt("Volume", ToggleMethod.DIRECT)
         return try {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val stream = AudioManager.STREAM_MUSIC
             val maxVolume = audioManager.getStreamMaxVolume(stream)
 
+            if (explicitPercent != null) {
+                val clampedPercent = explicitPercent.coerceIn(0, 100)
+                val targetVolume = if (maxVolume > 0) (clampedPercent * maxVolume) / 100 else 0
+                audioManager.setStreamVolume(stream, targetVolume, AudioManager.FLAG_SHOW_UI)
+                val actualPercent = if (maxVolume > 0) (targetVolume * 100) / maxVolume else clampedPercent
+                DebugLogger.logToggleResult(true, "Set to $actualPercent%")
+                return true
+            }
+
             when (action) {
                 VolumeAction.UP -> {
                     audioManager.adjustStreamVolume(stream, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
-                    DebugLogger.logToggleResult(true, "Volume Raised")
+                    val newVol = audioManager.getStreamVolume(stream)
+                    val newPercent = if (maxVolume > 0) (newVol * 100) / maxVolume else 0
+                    DebugLogger.logToggleResult(true, "Set to $newPercent%")
                 }
                 VolumeAction.DOWN -> {
                     audioManager.adjustStreamVolume(stream, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
-                    DebugLogger.logToggleResult(true, "Volume Lowered")
+                    val newVol = audioManager.getStreamVolume(stream)
+                    val newPercent = if (maxVolume > 0) (newVol * 100) / maxVolume else 0
+                    DebugLogger.logToggleResult(true, "Set to $newPercent%")
                 }
                 VolumeAction.MUTE -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -148,7 +234,8 @@ object HardwareToggleManager {
                         @Suppress("DEPRECATION")
                         audioManager.setStreamMute(stream, true)
                     }
-                    DebugLogger.logToggleResult(true, "Muted")
+                    audioManager.setStreamVolume(stream, 0, AudioManager.FLAG_SHOW_UI)
+                    DebugLogger.logToggleResult(true, "Set to 0%")
                 }
                 VolumeAction.UNMUTE -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -157,7 +244,9 @@ object HardwareToggleManager {
                         @Suppress("DEPRECATION")
                         audioManager.setStreamMute(stream, false)
                     }
-                    DebugLogger.logToggleResult(true, "Unmuted")
+                    val newVol = audioManager.getStreamVolume(stream)
+                    val newPercent = if (maxVolume > 0) (newVol * 100) / maxVolume else 50
+                    DebugLogger.logToggleResult(true, "Set to $newPercent%")
                 }
                 VolumeAction.MAX -> {
                     audioManager.setStreamVolume(stream, maxVolume, AudioManager.FLAG_SHOW_UI)

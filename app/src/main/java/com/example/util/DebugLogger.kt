@@ -109,6 +109,27 @@ object DebugLogger {
         addEntry(logLine, LogType.TOGGLE_RESULT)
     }
 
+    /**
+     * Exact required format: "CONTEXT_CURRENT_APP: <naam>"
+     */
+    fun logContextCurrentApp(appName: String?) {
+        val name = if (!appName.isNullOrBlank()) appName else "none"
+        val logLine = "CONTEXT_CURRENT_APP: $name"
+        safeLog(Log.DEBUG, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "CONTEXT_USED: <true/false>"
+     */
+    fun logContextUsed(used: Boolean, details: String = "") {
+        val status = if (used) "true" else "false"
+        val extra = if (details.isNotBlank()) " ($details)" else ""
+        val logLine = "CONTEXT_USED: $status$extra"
+        safeLog(Log.DEBUG, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)
