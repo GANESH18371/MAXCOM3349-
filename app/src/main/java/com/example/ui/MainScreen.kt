@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,11 +27,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.SettingsAccessibility
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -64,14 +68,19 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.material.icons.filled.Security
 import com.example.manager.AppContextManager
 import com.example.manager.VoiceCommandManager
 import com.example.manager.VoiceState
 import com.example.service.MaxAccessibilityService
+import com.example.ui.components.AntiTheftGuardCard
 import com.example.ui.components.AppLauncherSection
+import com.example.ui.components.CameraControlCard
 import com.example.ui.components.DebugLogConsole
 import com.example.ui.components.HardwareToggleGrid
 import com.example.ui.components.MicButton
+import com.example.ui.components.RemindersCard
+import com.example.ui.components.WeatherCard
 import com.example.ui.components.WhatsAppAutoReplyCard
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBackground
@@ -128,6 +137,10 @@ fun MainScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    BackHandler(enabled = selectedTab != 0) {
+        selectedTab = 0
+    }
+
     Scaffold(
         containerColor = DarkBackground,
         bottomBar = {
@@ -136,20 +149,23 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 tonalElevation = 0.dp,
                 modifier = Modifier.border(1.dp, DarkOutline.copy(alpha = 0.5f), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             ) {
-                val tabs = listOf("Dashboard", "Hardware", "WhatsApp", "Apps", "Logs")
+                val tabs = listOf("Dashboard", "Guard", "Camera", "Reminders", "Weather", "WhatsApp", "Hardware", "Logs")
                 tabs.forEachIndexed { index, title ->
                     NavigationBarItem(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        label = { Text(title, fontSize = 11.sp, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text(title, fontSize = 8.sp, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) },
                         icon = {
                             Icon(
                                 imageVector = when (index) {
                                     0 -> Icons.Default.Bolt
-                                    1 -> Icons.Default.SettingsAccessibility
-                                    2 -> Icons.Default.Mic
-                                    3 -> Icons.Default.Bolt
-                                    else -> Icons.Default.Bolt
+                                    1 -> Icons.Default.Security
+                                    2 -> Icons.Default.CameraAlt
+                                    3 -> Icons.Default.Alarm
+                                    4 -> Icons.Default.WbSunny
+                                    5 -> Icons.Default.Mic
+                                    6 -> Icons.Default.SettingsAccessibility
+                                    else -> Icons.Default.Info
                                 },
                                 contentDescription = title,
                                 modifier = Modifier.size(18.dp)
@@ -224,6 +240,26 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // Anti-Theft Guard Section
+                    AntiTheftGuardCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Camera & Vision Section
+                    CameraControlCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Live Weather Section
+                    WeatherCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Reminders & Alarms Section
+                    RemindersCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     // WhatsApp Auto-Reply Section
                     WhatsAppAutoReplyCard()
 
@@ -248,31 +284,48 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     DebugLogConsole()
                 }
                 1 -> {
-                    // TAB 1: HARDWARE FOCUS
+                    // TAB 1: ANTI-THEFT GUARD FOCUS
+                    AntiTheftGuardCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                2 -> {
+                    // TAB 2: CAMERA & VISION FOCUS
+                    CameraControlCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                3 -> {
+                    // TAB 3: REMINDERS & ALARMS FOCUS
+                    RemindersCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                4 -> {
+                    // TAB 4: WEATHER FOCUS
+                    WeatherCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                5 -> {
+                    // TAB 5: WHATSAPP AUTO-REPLY FOCUS
+                    WhatsAppAutoReplyCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                6 -> {
+                    // TAB 6: HARDWARE FOCUS
                     HardwareToggleGrid(
                         isAccessibilityEnabled = isAccessibilityActive,
                         onOpenAccessibilitySettings = {
                             MaxAccessibilityService.openAccessibilitySettings(context)
                         }
                     )
-
                     Spacer(modifier = Modifier.height(16.dp))
                     DebugLogConsole()
                 }
-                2 -> {
-                    // TAB 2: WHATSAPP AUTO-REPLY FOCUS
-                    WhatsAppAutoReplyCard()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                3 -> {
-                    // TAB 3: APPS FOCUS
-                    AppLauncherSection()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                4 -> {
-                    // TAB 4: LOGS ONLY
+                7 -> {
+                    // TAB 7: LOGS ONLY
                     DebugLogConsole()
                 }
             }
@@ -517,15 +570,18 @@ private fun VoiceControlCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             val sampleCommands = listOf(
+                "mera emergency contact 9876543210 hai",
+                "selfie lo",
+                "photo lo",
+                "saamne kya hai",
+                "aaj ka mausam kaisa hai",
+                "5 baje chai ka yaad dilana",
+                "7 baje alarm laga do",
+                "mere saare reminders batao",
                 "auto-reply on karo",
-                "auto-reply band karo",
                 "यूट्यूब खोलो",
                 "इसका वॉल्यूम बढ़ाओ",
                 "Torch on karo",
-                "isko band karo",
-                "वॉल्यूम बढ़ाओ 60%",
-                "आवाज़ कम करो",
-                "क्रोम खोलो",
                 "WiFi band karo"
             )
 

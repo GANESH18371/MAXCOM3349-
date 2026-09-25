@@ -20,3 +20,9 @@ val TextMuted = Color(0xFF64748B)
 
 val SuccessGreen = Color(0xFF10B981)
 val AccentPurple = Color(0xFFA855F7)
+
+val DarkCard = DarkSurfaceCard
+val NeonGreen = NeonLime
+val NeonYellow = NeonAmber
+val NeonPink = Color(0xFFFF4081)
+val ElectricBlue = CyberCyan

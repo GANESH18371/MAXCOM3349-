@@ -131,6 +131,41 @@ object DebugLogger {
     }
 
     /**
+     * Exact required format: "WHATSAPP_NOTIFICATION_RECEIVED: id=<id>, isDuplicate=<true/false>"
+     */
+    fun logWhatsAppNotificationReceived(id: String, isDuplicate: Boolean) {
+        val logLine = "WHATSAPP_NOTIFICATION_RECEIVED: id=$id, isDuplicate=$isDuplicate"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "WHATSAPP_REPLY_RATE_LIMIT_CHECK: allowed/blocked"
+     */
+    fun logWhatsAppRateLimitCheck(allowed: Boolean, details: String = "") {
+        val status = if (allowed) "allowed" else "blocked"
+        val extra = if (details.isNotBlank()) " ($details)" else ""
+        val logLine = "WHATSAPP_REPLY_RATE_LIMIT_CHECK: $status$extra"
+        if (allowed) {
+            safeLog(Log.INFO, TAG, logLine)
+        } else {
+            safeLog(Log.WARN, TAG, logLine)
+        }
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "WHATSAPP_SELF_TRIGGER_IGNORED: true/false"
+     */
+    fun logWhatsAppSelfTriggerIgnored(ignored: Boolean, details: String = "") {
+        val status = if (ignored) "true" else "false"
+        val extra = if (details.isNotBlank()) " ($details)" else ""
+        val logLine = "WHATSAPP_SELF_TRIGGER_IGNORED: $status$extra"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
      * Exact required format: "WHATSAPP_MESSAGE_RECEIVED: sender=<naam>, text=<message>"
      */
     fun logWhatsAppMessageReceived(sender: String, text: String) {
@@ -155,6 +190,121 @@ object DebugLogger {
         val status = if (success) "success" else "fail"
         val extra = if (details.isNotBlank()) " ($details)" else ""
         val logLine = "WHATSAPP_REPLY_SENT: $status$extra"
+        if (success) {
+            safeLog(Log.INFO, TAG, logLine)
+        } else {
+            safeLog(Log.ERROR, TAG, logLine)
+        }
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "REMINDER_SET: time=<time>, task=<text>"
+     */
+    fun logReminderSet(time: String, task: String) {
+        val logLine = "REMINDER_SET: time=$time, task=$task"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "REMINDER_TRIGGERED: task=<text>"
+     */
+    fun logReminderTriggered(task: String) {
+        val logLine = "REMINDER_TRIGGERED: task=$task"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "WEATHER_LOCATION: lat=<>, lon=<>"
+     */
+    fun logWeatherLocation(lat: Double, lon: Double) {
+        val logLine = "WEATHER_LOCATION: lat=$lat, lon=$lon"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "WEATHER_API_CALL: success/fail"
+     */
+    fun logWeatherApiCall(success: Boolean, details: String = "") {
+        val status = if (success) "success" else "fail"
+        val extra = if (details.isNotBlank()) " ($details)" else ""
+        val logLine = "WEATHER_API_CALL: $status$extra"
+        if (success) {
+            safeLog(Log.INFO, TAG, logLine)
+        } else {
+            safeLog(Log.ERROR, TAG, logLine)
+        }
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "CAMERA_CAPTURE: type=<selfie/back>, result=success/fail"
+     */
+    fun logCameraCapture(type: String, success: Boolean, details: String = "") {
+        val result = if (success) "success" else "fail"
+        val extra = if (details.isNotBlank()) " ($details)" else ""
+        val logLine = "CAMERA_CAPTURE: type=$type, result=$result$extra"
+        if (success) {
+            safeLog(Log.INFO, TAG, logLine)
+        } else {
+            safeLog(Log.ERROR, TAG, logLine)
+        }
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "SCENE_ANALYSIS: gemini_response=<summary>"
+     */
+    fun logSceneAnalysis(summary: String) {
+        val logLine = "SCENE_ANALYSIS: gemini_response=$summary"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "DEVICE_ADMIN_STATUS: enabled/disabled"
+     */
+    fun logDeviceAdminStatus(enabled: Boolean) {
+        val status = if (enabled) "enabled" else "disabled"
+        val logLine = "DEVICE_ADMIN_STATUS: $status"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "WRONG_PASSWORD_DETECTED: true"
+     */
+    fun logWrongPasswordDetected() {
+        val logLine = "WRONG_PASSWORD_DETECTED: true"
+        safeLog(Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "THEFT_PHOTO_CAPTURED: success/fail"
+     */
+    fun logTheftPhotoCaptured(success: Boolean, details: String = "") {
+        val status = if (success) "success" else "fail"
+        val extra = if (details.isNotBlank()) " ($details)" else ""
+        val logLine = "THEFT_PHOTO_CAPTURED: $status$extra"
+        if (success) {
+            safeLog(Log.INFO, TAG, logLine)
+        } else {
+            safeLog(Log.ERROR, TAG, logLine)
+        }
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "THEFT_ALERT_SENT: success/fail"
+     */
+    fun logTheftAlertSent(success: Boolean, details: String = "") {
+        val status = if (success) "success" else "fail"
+        val extra = if (details.isNotBlank()) " ($details)" else ""
+        val logLine = "THEFT_ALERT_SENT: $status$extra"
         if (success) {
             safeLog(Log.INFO, TAG, logLine)
         } else {

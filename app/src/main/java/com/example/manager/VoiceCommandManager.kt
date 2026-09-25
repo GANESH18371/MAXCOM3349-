@@ -7,10 +7,18 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import com.example.data.AppDatabase
+import com.example.data.ReminderRepository
 import com.example.util.DebugLogger
+import com.example.util.ReminderParser
+import com.example.util.ReminderVoiceAction
+import com.example.util.TtsManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 sealed interface VoiceState {
@@ -23,6 +31,7 @@ sealed interface VoiceState {
 
 class VoiceCommandManager(private val context: Context) {
 
+    private val scope = CoroutineScope(Dispatchers.Main)
     private val _voiceState = MutableStateFlow<VoiceState>(VoiceState.Idle)
     val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
 
@@ -194,6 +203,82 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         // =========================================================================
+        // STEP 0.7: WEATHER COMMAND ("aaj ka mausam kaisa hai")
+        // =========================================================================
+        if (WeatherManager.isWeatherCommand(lower)) {
+            _voiceState.value = VoiceState.Processing("मौसम की जानकारी ली जा रही है...")
+            WeatherManager.fetchAndAnnounceWeather(context) { success, msg ->
+                if (success) {
+                    _voiceState.value = VoiceState.Success(msg)
+                } else {
+                    _voiceState.value = VoiceState.Error(msg)
+                }
+            }
+            return
+        }
+
+        // =========================================================================
+        // STEP 0.8: REMINDERS & ALARMS ("mujhe [samay] par [kaam] yaad dilana")
+        // =========================================================================
+        if (ReminderParser.isReminderOrAlarmCommand(lower)) {
+            handleReminderVoiceCommand(trimmed, lower)
+            return
+        }
+
+        // =========================================================================
+        // STEP 0.9: CAMERA & SCENE ANALYSIS ("selfie lo", "photo lo", "saamne kya hai")
+        // =========================================================================
+        if (MaxCameraManager.isSceneAnalysisCommand(lower)) {
+            _voiceState.value = VoiceState.Processing("सामने का दृश्य देखा जा रहा है...")
+            MaxCameraManager.analyzeScene(context) { success, result ->
+                if (success) {
+                    _voiceState.value = VoiceState.Success(result)
+                } else {
+                    _voiceState.value = VoiceState.Error(result)
+                }
+            }
+            return
+        }
+
+        if (MaxCameraManager.isSelfieCommand(lower)) {
+            _voiceState.value = VoiceState.Processing("सेल्फी ली जा रही है...")
+            MaxCameraManager.capturePhoto(context, isFrontCamera = true) { success, result ->
+                if (success) {
+                    _voiceState.value = VoiceState.Success("Selfie captured ($result)")
+                } else {
+                    _voiceState.value = VoiceState.Error(result)
+                }
+            }
+            return
+        }
+
+        if (MaxCameraManager.isBackPhotoCommand(lower)) {
+            _voiceState.value = VoiceState.Processing("फोटो ली जा रही है...")
+            MaxCameraManager.capturePhoto(context, isFrontCamera = false) { success, result ->
+                if (success) {
+                    _voiceState.value = VoiceState.Success("Photo captured ($result)")
+                } else {
+                    _voiceState.value = VoiceState.Error(result)
+                }
+            }
+            return
+        }
+
+        // =========================================================================
+        // STEP 0.95: ANTI-THEFT GUARD EMERGENCY CONTACT ("mera emergency contact 9876543210 hai")
+        // =========================================================================
+        if (AntiTheftManager.isTrustedContactCommand(lower)) {
+            _voiceState.value = VoiceState.Processing("इमरजेंसी कॉन्टैक्ट सेट किया जा रहा है...")
+            val (saved, message) = AntiTheftManager.parseAndSaveContactFromVoice(context, trimmed)
+            if (saved) {
+                _voiceState.value = VoiceState.Success(message)
+            } else {
+                _voiceState.value = VoiceState.Error(message)
+            }
+            return
+        }
+
+        // =========================================================================
         // STEP 1: HARDWARE TOGGLE COMMAND (VOLUME / TORCH / WIFI / etc.) [UNTOUCHED]
         // =========================================================================
         if (isHardwareCommand(lower)) {
@@ -267,6 +352,83 @@ class VoiceCommandManager(private val context: Context) {
             "whatsapp reply", "whatsapp auto", "व्हाट्सएप रिप्लाई", "व्हाट्सएप ऑटो"
         )
         return keywords.any { lower.contains(it) }
+    }
+
+    /**
+     * Handles setting, cancelling, or listing reminders and alarms
+     */
+    private fun handleReminderVoiceCommand(trimmed: String, lower: String) {
+        val parsedAction = ReminderParser.parseCommand(trimmed)
+        if (parsedAction == null) {
+            val fallbackMsg = "रिमाइंडर समझ नहीं आया. कृपया समय और काम स्पष्ट बोलें."
+            TtsManager.speak(fallbackMsg)
+            _voiceState.value = VoiceState.Error(fallbackMsg)
+            return
+        }
+
+        when (parsedAction) {
+            is ReminderVoiceAction.SetReminder -> {
+                ReminderScheduler.scheduleReminder(
+                    context = context,
+                    task = parsedAction.task,
+                    triggerTimeMillis = parsedAction.triggerTimeMillis,
+                    isAlarm = parsedAction.isAlarm
+                ) { savedItem ->
+                    val typeStr = if (parsedAction.isAlarm) "अलार्म" else "रिमाइंडर"
+                    val confirmMsg = if (parsedAction.isAlarm) {
+                        "अलार्म ${parsedAction.humanTimeDescription} के लिए सेट कर दिया गया है."
+                    } else {
+                        "ठीक है, ${parsedAction.humanTimeDescription} पर ${parsedAction.task} याद दिला दूँगा."
+                    }
+                    TtsManager.speak(confirmMsg)
+                    _voiceState.value = VoiceState.Success("$typeStr: ${parsedAction.task} at ${savedItem.formattedTime}")
+                }
+            }
+            is ReminderVoiceAction.CancelReminder -> {
+                if (parsedAction.isAll) {
+                    scope.launch {
+                        val db = AppDatabase.getInstance(context)
+                        val repo = ReminderRepository(db.reminderDao())
+                        repo.deleteAll()
+                        val msg = "आपके सारे रिमाइंडर्स और अलार्म हटा दिए गए हैं."
+                        TtsManager.speak(msg)
+                        _voiceState.value = VoiceState.Success(msg)
+                    }
+                } else {
+                    ReminderScheduler.cancelRemindersByKeyword(context, parsedAction.keyword) { count, matchedTask ->
+                        val msg = if (count > 0) {
+                            "आपका $matchedTask वाला रिमाइंडर कैंसिल कर दिया गया है."
+                        } else {
+                            "कोई मैचिंग रिमाइंडर नहीं मिला."
+                        }
+                        TtsManager.speak(msg)
+                        _voiceState.value = if (count > 0) VoiceState.Success(msg) else VoiceState.Error(msg)
+                    }
+                }
+            }
+            is ReminderVoiceAction.ListReminders -> {
+                scope.launch {
+                    val db = AppDatabase.getInstance(context)
+                    val repo = ReminderRepository(db.reminderDao())
+                    val activeList = repo.getActiveReminders()
+                    if (activeList.isEmpty()) {
+                        val msg = "आपका कोई एक्टिव रिमाइंडर या अलार्म नहीं है."
+                        TtsManager.speak(msg)
+                        _voiceState.value = VoiceState.Success(msg)
+                    } else {
+                        val sb = StringBuilder()
+                        sb.append("आपके ${activeList.size} एक्टिव रिमाइंडर्स हैं: ")
+                        activeList.take(5).forEachIndexed { i, item ->
+                            val type = if (item.isAlarm) "अलार्म" else "रिमाइंडर"
+                            sb.append("${i + 1}. ${item.task} ${item.formattedTime} पर. ")
+                        }
+                        val speakText = sb.toString()
+                        TtsManager.speak(speakText)
+                        _voiceState.value = VoiceState.Success("Active Reminders: ${activeList.size}")
+                    }
+                }
+            }
+        }
     }
 
     /**

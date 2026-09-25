@@ -105,6 +105,80 @@ object GeminiReplyService {
         return@withContext generateFallbackReply(sender, messageText)
     }
 
+    /**
+     * Multimodal scene analysis via Gemini Vision API
+     */
+    suspend fun analyzeSceneImage(imageBytes: ByteArray): String = withContext(Dispatchers.IO) {
+        val apiKey = try {
+            BuildConfig.GEMINI_API_KEY
+        } catch (_: Throwable) {
+            ""
+        }
+
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+            DebugLogger.logInfo("Gemini API key not configured, returning local scene fallback")
+            return@withContext "सामने एक कमरा और वस्तुएं दिखाई दे रही हैं. स्पष्ट विवरण के लिए Gemini API Key कॉन्फ़िगर करें."
+        }
+
+        try {
+            val base64Data = android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP)
+
+            val jsonBody = JSONObject().apply {
+                val contentsArray = JSONArray().apply {
+                    val contentObj = JSONObject().apply {
+                        val partsArray = JSONArray().apply {
+                            put(JSONObject().put("text", "Is image me kya hai, short me batao. 1-2 chote sentences me naturally Hindi me bolo (jaise 'Saamne ek laptop aur kitaab rakhi hai')."))
+                            val inlineData = JSONObject().apply {
+                                put("mimeType", "image/jpeg")
+                                put("data", base64Data)
+                            }
+                            put(JSONObject().put("inlineData", inlineData))
+                        }
+                        put("parts", partsArray)
+                    }
+                    put(contentObj)
+                }
+                put("contents", contentsArray)
+
+                val genConfig = JSONObject().apply {
+                    put("temperature", 0.4)
+                    put("maxOutputTokens", 120)
+                }
+                put("generationConfig", genConfig)
+            }
+
+            val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("$BASE_URL?key=$apiKey")
+                .post(requestBody)
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+            val responseBody = response.body?.string()
+
+            if (response.isSuccessful && !responseBody.isNullOrBlank()) {
+                val jsonResponse = JSONObject(responseBody)
+                val candidates = jsonResponse.optJSONArray("candidates")
+                if (candidates != null && candidates.length() > 0) {
+                    val content = candidates.getJSONObject(0).optJSONObject("content")
+                    val parts = content?.optJSONArray("parts")
+                    if (parts != null && parts.length() > 0) {
+                        val analysisText = parts.getJSONObject(0).optString("text", "").trim()
+                        if (analysisText.isNotBlank()) {
+                            return@withContext analysisText
+                        }
+                    }
+                }
+            } else {
+                DebugLogger.logInfo("Gemini Scene Analysis API error: ${response.code} ${responseBody?.take(100)}")
+            }
+        } catch (e: Exception) {
+            DebugLogger.logInfo("Gemini scene analysis exception: ${e.message}")
+        }
+
+        return@withContext "सामने का दृश्य स्पष्ट नहीं हो सका. कृपया दोबारा प्रयास करें."
+    }
+
     private fun generateFallbackReply(sender: String, messageText: String): String {
         val lower = messageText.lowercase()
         return when {

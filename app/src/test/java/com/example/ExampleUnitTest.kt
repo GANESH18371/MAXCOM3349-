@@ -255,11 +255,17 @@ class ExampleUnitTest {
     @Test
     fun whatsAppAutoReply_logsCorrectly() {
         DebugLogger.clearLogs()
+        DebugLogger.logWhatsAppNotificationReceived("notif_key_123", false)
+        DebugLogger.logWhatsAppSelfTriggerIgnored(false)
+        DebugLogger.logWhatsAppRateLimitCheck(true, "sender=Amit Verma")
         DebugLogger.logWhatsAppMessageReceived("Amit Verma", "Kaha ho bhai?")
         DebugLogger.logWhatsAppReplyGenerated("Main abhi thoda busy hoon, thodi der me baat karta hoon.")
         DebugLogger.logWhatsAppReplySent(true, "Sent to Amit Verma")
 
         val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "WHATSAPP_NOTIFICATION_RECEIVED: id=notif_key_123, isDuplicate=false" })
+        assertTrue(logs.any { it.message == "WHATSAPP_SELF_TRIGGER_IGNORED: false" })
+        assertTrue(logs.any { it.message.startsWith("WHATSAPP_REPLY_RATE_LIMIT_CHECK: allowed") })
         assertTrue(logs.any { it.message == "WHATSAPP_MESSAGE_RECEIVED: sender=Amit Verma, text=Kaha ho bhai?" })
         assertTrue(logs.any { it.message == "WHATSAPP_REPLY_GENERATED: Main abhi thoda busy hoon, thodi der me baat karta hoon." })
         assertTrue(logs.any { it.message.startsWith("WHATSAPP_REPLY_SENT: success") })
@@ -269,5 +275,113 @@ class ExampleUnitTest {
     fun whatsAppAutoReply_defaultIsOff() {
         // Must default to OFF as specified in requirements
         assertEquals(false, com.example.manager.WhatsAppAutoReplyManager.isAutoReplyEnabled.value)
+    }
+
+    @Test
+    fun whatsAppAutoReply_selfTriggerDetection() {
+        com.example.manager.WhatsAppAutoReplyManager.clearHistoryForTesting()
+
+        // 1. Outgoing messages starting with "You:" / "आप:" must be recognized as self-trigger
+        assertTrue(com.example.manager.WhatsAppAutoReplyManager.isSelfTrigger("Pooja", "You: Hey, I am busy"))
+        assertTrue(com.example.manager.WhatsAppAutoReplyManager.isSelfTrigger("Pooja", "आप: Haan bhai"))
+
+        // 2. Normal incoming message is NOT self-trigger
+        assertEquals(false, com.example.manager.WhatsAppAutoReplyManager.isSelfTrigger("Pooja", "Hello!"))
+    }
+
+    @Test
+    fun reminderParser_parsesNaturalLanguageCommands() {
+        // 1. Set Reminder
+        val cmd1 = "mujhe 5 baje chai peene ka yaad dilana"
+        assertTrue(com.example.util.ReminderParser.isReminderOrAlarmCommand(cmd1))
+        val action1 = com.example.util.ReminderParser.parseCommand(cmd1)
+        assertTrue(action1 is com.example.util.ReminderVoiceAction.SetReminder)
+        val setRem1 = action1 as com.example.util.ReminderVoiceAction.SetReminder
+        assertEquals(false, setRem1.isAlarm)
+        assertTrue(setRem1.task.lowercase().contains("chai"))
+
+        // 2. Set Alarm
+        val cmd2 = "7 baje alarm laga do"
+        assertTrue(com.example.util.ReminderParser.isReminderOrAlarmCommand(cmd2))
+        val action2 = com.example.util.ReminderParser.parseCommand(cmd2)
+        assertTrue(action2 is com.example.util.ReminderVoiceAction.SetReminder)
+        val setRem2 = action2 as com.example.util.ReminderVoiceAction.SetReminder
+        assertEquals(true, setRem2.isAlarm)
+
+        // 3. Cancel Reminder
+        val cmd3 = "mera dawai wala reminder cancel karo"
+        assertTrue(com.example.util.ReminderParser.isReminderOrAlarmCommand(cmd3))
+        val action3 = com.example.util.ReminderParser.parseCommand(cmd3)
+        assertTrue(action3 is com.example.util.ReminderVoiceAction.CancelReminder)
+        val cancel3 = action3 as com.example.util.ReminderVoiceAction.CancelReminder
+        assertTrue(cancel3.keyword.contains("dawai"))
+
+        // 4. List Reminders
+        val cmd4 = "mere saare reminders batao"
+        assertTrue(com.example.util.ReminderParser.isReminderOrAlarmCommand(cmd4))
+        val action4 = com.example.util.ReminderParser.parseCommand(cmd4)
+        assertTrue(action4 is com.example.util.ReminderVoiceAction.ListReminders)
+    }
+
+    @Test
+    fun weatherManager_detectsWeatherVoiceCommands() {
+        assertTrue(com.example.manager.WeatherManager.isWeatherCommand("aaj ka mausam kaisa hai"))
+        assertTrue(com.example.manager.WeatherManager.isWeatherCommand("weather kaisa hai"))
+        assertTrue(com.example.manager.WeatherManager.isWeatherCommand("aaj tapman kitna hai"))
+        assertTrue(com.example.manager.WeatherManager.isWeatherCommand("मौसम कैसा है"))
+        assertEquals(false, com.example.manager.WeatherManager.isWeatherCommand("यूट्यूब खोलो"))
+        assertEquals(false, com.example.manager.WeatherManager.isWeatherCommand("Torch on karo"))
+    }
+
+    @Test
+    fun reminderAndWeather_debugLoggingFormats() {
+        DebugLogger.clearLogs()
+        DebugLogger.logReminderSet("05:00 PM", "Medicine lena")
+        DebugLogger.logReminderTriggered("Medicine lena")
+        DebugLogger.logWeatherLocation(28.6139, 77.2090)
+        DebugLogger.logWeatherApiCall(true, "Temp: 28C")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "REMINDER_SET: time=05:00 PM, task=Medicine lena" })
+        assertTrue(logs.any { it.message == "REMINDER_TRIGGERED: task=Medicine lena" })
+        assertTrue(logs.any { it.message == "WEATHER_LOCATION: lat=28.6139, lon=77.209" })
+        assertTrue(logs.any { it.message.startsWith("WEATHER_API_CALL: success") })
+    }
+
+    @Test
+    fun cameraManager_commandRecognition() {
+        // 1. Selfie commands
+        assertTrue(com.example.manager.MaxCameraManager.isSelfieCommand("selfie lo"))
+        assertTrue(com.example.manager.MaxCameraManager.isSelfieCommand("meri selfie kheecho"))
+        assertTrue(com.example.manager.MaxCameraManager.isSelfieCommand("front camera se photo"))
+
+        // 2. Back Photo commands
+        assertTrue(com.example.manager.MaxCameraManager.isBackPhotoCommand("photo lo"))
+        assertTrue(com.example.manager.MaxCameraManager.isBackPhotoCommand("peeche wali se photo lo"))
+        assertTrue(com.example.manager.MaxCameraManager.isBackPhotoCommand("फोटो खींचो"))
+
+        // 3. Scene Analysis commands
+        assertTrue(com.example.manager.MaxCameraManager.isSceneAnalysisCommand("saamne kya hai"))
+        assertTrue(com.example.manager.MaxCameraManager.isSceneAnalysisCommand("yeh kya hai batao"))
+        assertTrue(com.example.manager.MaxCameraManager.isSceneAnalysisCommand("सामने क्या है बताओ"))
+        assertTrue(com.example.manager.MaxCameraManager.isSceneAnalysisCommand("what is in front of me"))
+
+        // Irrelevant commands should NOT match
+        assertEquals(false, com.example.manager.MaxCameraManager.isSelfieCommand("यूट्यूब खोलो"))
+        assertEquals(false, com.example.manager.MaxCameraManager.isBackPhotoCommand("aaj ka mausam kaisa hai"))
+        assertEquals(false, com.example.manager.MaxCameraManager.isSceneAnalysisCommand("Torch on karo"))
+    }
+
+    @Test
+    fun cameraAndSceneAnalysis_debugLoggingFormats() {
+        DebugLogger.clearLogs()
+        DebugLogger.logCameraCapture(type = "selfie", success = true)
+        DebugLogger.logCameraCapture(type = "back", success = false, details = "Camera unavailable")
+        DebugLogger.logSceneAnalysis("Saamne ek laptop aur kitaab rakhi hai")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message.startsWith("CAMERA_CAPTURE: type=selfie, result=success") })
+        assertTrue(logs.any { it.message.startsWith("CAMERA_CAPTURE: type=back, result=fail") })
+        assertTrue(logs.any { it.message == "SCENE_ANALYSIS: gemini_response=Saamne ek laptop aur kitaab rakhi hai" })
     }
 }

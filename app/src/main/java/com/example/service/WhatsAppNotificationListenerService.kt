@@ -28,20 +28,28 @@ class WhatsAppNotificationListenerService : NotificationListenerService() {
             ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
             ?: ""
 
-        if (title.isBlank() || text.isBlank()) return
+        val cleanTitle = title.trim()
+        val cleanText = text.trim()
+
+        if (cleanTitle.isBlank() || cleanText.isBlank()) return
 
         // Filter out non-message system notices like "WhatsApp Web is active" or "Checking for messages"
-        if (title.equals("WhatsApp", ignoreCase = true) &&
-            (text.contains("messages", ignoreCase = true) ||
-             text.contains("web is currently active", ignoreCase = true) ||
-             text.contains("checking for new", ignoreCase = true))) {
+        if (cleanTitle.equals("WhatsApp", ignoreCase = true) &&
+            (cleanText.contains("messages", ignoreCase = true) ||
+             cleanText.contains("web is currently active", ignoreCase = true) ||
+             cleanText.contains("checking for new", ignoreCase = true))) {
+            return
+        }
+
+        // Filter out summary lines like "2 new messages"
+        if (cleanText.matches(Regex("""^\d+\s+new\s+messages$""", RegexOption.IGNORE_CASE))) {
             return
         }
 
         WhatsAppAutoReplyManager.onWhatsAppMessageReceived(
             context = applicationContext,
-            sender = title.trim(),
-            messageText = text.trim(),
+            sender = cleanTitle,
+            messageText = cleanText,
             sbn = sbn
         )
     }
