@@ -36,6 +36,20 @@ object DebugLogger {
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
 
+    private fun safeLog(priority: Int, tag: String, message: String) {
+        try {
+            when (priority) {
+                Log.DEBUG -> Log.d(tag, message)
+                Log.INFO -> Log.i(tag, message)
+                Log.ERROR -> Log.e(tag, message)
+                Log.WARN -> Log.w(tag, message)
+                else -> Log.v(tag, message)
+            }
+        } catch (_: Throwable) {
+            // Safe in unit test environments where android.util.Log is not mocked
+        }
+    }
+
     private fun addEntry(message: String, type: LogType) {
         val entry = LogEntry(
             timestamp = timeFormat.format(Date()),
@@ -53,7 +67,7 @@ object DebugLogger {
     fun logMatch(found: Boolean, appDetails: String = "") {
         val status = if (found) "found${if (appDetails.isNotBlank()) " ($appDetails)" else ""}" else "not-found"
         val logLine = "APP_OPEN_MATCH: $status"
-        Log.d(TAG, logLine)
+        safeLog(Log.DEBUG, TAG, logLine)
         addEntry(logLine, LogType.MATCH)
     }
 
@@ -64,9 +78,9 @@ object DebugLogger {
         val status = if (success) "success${if (details.isNotBlank()) " ($details)" else ""}" else "fail${if (details.isNotBlank()) " ($details)" else ""}"
         val logLine = "APP_OPEN_LAUNCH: $status"
         if (success) {
-            Log.i(TAG, logLine)
+            safeLog(Log.INFO, TAG, logLine)
         } else {
-            Log.e(TAG, logLine)
+            safeLog(Log.ERROR, TAG, logLine)
         }
         addEntry(logLine, LogType.LAUNCH)
     }
@@ -76,7 +90,7 @@ object DebugLogger {
      */
     fun logToggleAttempt(name: String, method: ToggleMethod) {
         val logLine = "TOGGLE_ATTEMPT: $name, method=$method"
-        Log.d(TAG, logLine)
+        safeLog(Log.DEBUG, TAG, logLine)
         addEntry(logLine, LogType.TOGGLE_ATTEMPT)
     }
 
@@ -88,16 +102,16 @@ object DebugLogger {
         val extra = if (details.isNotBlank()) " ($details)" else ""
         val logLine = "TOGGLE_RESULT: $status$extra"
         if (success) {
-            Log.i(TAG, logLine)
+            safeLog(Log.INFO, TAG, logLine)
         } else {
-            Log.e(TAG, logLine)
+            safeLog(Log.ERROR, TAG, logLine)
         }
         addEntry(logLine, LogType.TOGGLE_RESULT)
     }
 
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
-        Log.d(TAG, logLine)
+        safeLog(Log.DEBUG, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
 
