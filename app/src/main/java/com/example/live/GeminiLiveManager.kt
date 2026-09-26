@@ -53,10 +53,11 @@ object GeminiLiveManager {
     private var audioPlayer: LiveAudioPlayer? = null
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS) // Indefinite for live WebSocket
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .pingInterval(10, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS) // Indefinite for live WebSocket stream
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .pingInterval(0, TimeUnit.SECONDS) // Ping disabled: prevents SocketTimeoutException from missing pongs
+        .retryOnConnectionFailure(true)
         .build()
 
     // Public StateFlows
@@ -299,6 +300,8 @@ object GeminiLiveManager {
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "WebSocket closing: code=$code, reason=$reason")
                 _connectionState.value = LiveConnectionState.DISCONNECTED
+                audioRecorder?.stop()
+                audioPlayer?.stopAndFlush()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -306,6 +309,8 @@ object GeminiLiveManager {
                 Log.e(TAG, errorMsg, t)
                 _lastErrorMessage.value = errorMsg
                 _connectionState.value = LiveConnectionState.ERROR
+                audioRecorder?.stop()
+                audioPlayer?.stopAndFlush()
 
                 // Exact requirement: Log error for model debugging
                 DebugLogger.logInfo("GEMINI_LIVE_ERROR (Model: $GEMINI_LIVE_MODEL): $errorMsg ${response?.message ?: ""}")
