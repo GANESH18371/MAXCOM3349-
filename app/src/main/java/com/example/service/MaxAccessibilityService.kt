@@ -33,22 +33,21 @@ class MaxAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         _isServiceEnabled.value = true
-        DebugLogger.logInfo("MaxAccessibilityService connected successfully.")
+        DebugLogger.logInfo("MaxAccessibilityService connected successfully (Zero Background Drain Throttling).")
+        com.example.manager.BatteryOptimizationManager.updateSubsystemState(accessibilityState = "CONNECTED (Throttled/Passive)")
 
         val info = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
-                    AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
                     AccessibilityEvent.TYPE_VIEW_CLICKED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-            notificationTimeout = 100
-            flags = AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
-                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+            notificationTimeout = 200 // 200ms throttle to prevent CPU flooding
+            flags = AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
         serviceInfo = info
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Zero Background Overhead: Only inspect screen nodes when an active command is waiting for tile matching
         if (!isSearching || pendingTargetKeywords.isNullOrEmpty()) return
 
         // If Quick Settings window is active, scan for target tile
@@ -59,12 +58,14 @@ class MaxAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         Log.w(TAG, "Accessibility Service Interrupted")
+        resetSearch()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         instance = null
         _isServiceEnabled.value = false
+        com.example.manager.BatteryOptimizationManager.updateSubsystemState(accessibilityState = "OFF (Disconnected)")
         DebugLogger.logInfo("MaxAccessibilityService destroyed.")
     }
 
@@ -77,6 +78,7 @@ class MaxAccessibilityService : AccessibilityService() {
         pendingTargetKeywords = keywords
         onActionResult = onComplete
         isSearching = true
+        com.example.manager.BatteryOptimizationManager.updateSubsystemState(accessibilityState = "SCANNING QS TILE ($toggleName)")
 
         DebugLogger.logToggleAttempt(toggleName, ToggleMethod.ACCESSIBILITY)
 
@@ -241,6 +243,7 @@ class MaxAccessibilityService : AccessibilityService() {
         pendingTargetKeywords = null
         pendingTargetName = null
         onActionResult = null
+        com.example.manager.BatteryOptimizationManager.updateSubsystemState(accessibilityState = "CONNECTED (Throttled/Passive)")
     }
 
     companion object {

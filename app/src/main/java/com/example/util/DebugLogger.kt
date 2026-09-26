@@ -284,6 +284,15 @@ object DebugLogger {
     }
 
     /**
+     * Exact required format: "PASSWORD_FAIL_CALLBACK_COUNT: <count>"
+     */
+    fun logPasswordFailCallbackCount(count: Int) {
+        val logLine = "PASSWORD_FAIL_CALLBACK_COUNT: $count"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
      * Exact required format: "THEFT_PHOTO_CAPTURED: success/fail"
      */
     fun logTheftPhotoCaptured(success: Boolean, details: String = "") {
@@ -310,6 +319,33 @@ object DebugLogger {
         } else {
             safeLog(Log.ERROR, TAG, logLine)
         }
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "CALL_INCOMING: caller=<naam/number>"
+     */
+    fun logCallIncoming(caller: String) {
+        val logLine = "CALL_INCOMING: caller=$caller"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "CALL_ANNOUNCE: TTS spoken"
+     */
+    fun logCallAnnounce() {
+        val logLine = "CALL_ANNOUNCE: TTS spoken"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "CALL_VOICE_COMMAND: <utha lo/katt do>, action=<answered/rejected>"
+     */
+    fun logCallVoiceCommand(command: String, action: String) {
+        val logLine = "CALL_VOICE_COMMAND: $command, action=$action"
+        safeLog(Log.INFO, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
 

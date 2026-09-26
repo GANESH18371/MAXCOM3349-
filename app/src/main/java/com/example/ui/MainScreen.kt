@@ -69,17 +69,28 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.PhoneCallback
+import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.Assistant
+import androidx.compose.material.icons.filled.HeadsetMic
+import com.example.live.GeminiLiveManager
 import com.example.manager.AppContextManager
+import com.example.manager.DefaultAssistantManager
 import com.example.manager.VoiceCommandManager
 import com.example.manager.VoiceState
 import com.example.service.MaxAccessibilityService
 import com.example.ui.components.AntiTheftGuardCard
 import com.example.ui.components.AppLauncherSection
+import com.example.ui.components.BatteryReportCard
+import com.example.ui.components.CallAnnounceCard
 import com.example.ui.components.CameraControlCard
 import com.example.ui.components.DebugLogConsole
+import com.example.ui.components.DefaultAssistantCard
+import com.example.ui.components.GeminiLiveCard
 import com.example.ui.components.HardwareToggleGrid
 import com.example.ui.components.MicButton
 import com.example.ui.components.RemindersCard
+import com.example.ui.components.VoiceSettingsCard
 import com.example.ui.components.WeatherCard
 import com.example.ui.components.WhatsAppAutoReplyCard
 import com.example.ui.theme.CyberCyan
@@ -110,7 +121,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Re-check permissions on resume
+    // Re-check permissions on resume & link Gemini Live to Command Router
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -118,9 +129,15 @@ fun MainScreen(modifier: Modifier = Modifier) {
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+
+        GeminiLiveManager.setCommandRouter { recognizedCommand ->
+            voiceManager.processCommand(recognizedCommand)
+        }
+
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             voiceManager.destroy()
+            GeminiLiveManager.stopLiveSession()
         }
     }
 
@@ -137,6 +154,23 @@ fun MainScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    // Auto-start voice listening when Digital Assistant gesture / Assist Intent fires
+    val autoListenRequest by DefaultAssistantManager.autoListenRequest.collectAsState()
+    LaunchedEffect(autoListenRequest) {
+        if (autoListenRequest > 0L) {
+            val hasMicPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (hasMicPermission) {
+                voiceManager.startListening()
+            } else {
+                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+
     BackHandler(enabled = selectedTab != 0) {
         selectedTab = 0
     }
@@ -149,22 +183,27 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 tonalElevation = 0.dp,
                 modifier = Modifier.border(1.dp, DarkOutline.copy(alpha = 0.5f), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             ) {
-                val tabs = listOf("Dashboard", "Guard", "Camera", "Reminders", "Weather", "WhatsApp", "Hardware", "Logs")
+                val tabs = listOf("Dashboard", "Gemini Live", "Voice Studio", "Assistant", "Calls", "Guard", "Battery", "Camera", "Reminders", "Weather", "WhatsApp", "Hardware", "Logs")
                 tabs.forEachIndexed { index, title ->
                     NavigationBarItem(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        label = { Text(title, fontSize = 8.sp, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text(title, fontSize = 7.5.sp, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) },
                         icon = {
                             Icon(
                                 imageVector = when (index) {
                                     0 -> Icons.Default.Bolt
-                                    1 -> Icons.Default.Security
-                                    2 -> Icons.Default.CameraAlt
-                                    3 -> Icons.Default.Alarm
-                                    4 -> Icons.Default.WbSunny
-                                    5 -> Icons.Default.Mic
-                                    6 -> Icons.Default.SettingsAccessibility
+                                    1 -> Icons.Default.HeadsetMic
+                                    2 -> Icons.Default.Mic
+                                    3 -> Icons.Default.Assistant
+                                    4 -> Icons.Default.PhoneCallback
+                                    5 -> Icons.Default.Security
+                                    6 -> Icons.Default.BatteryFull
+                                    7 -> Icons.Default.CameraAlt
+                                    8 -> Icons.Default.Alarm
+                                    9 -> Icons.Default.WbSunny
+                                    10 -> Icons.Default.Mic
+                                    11 -> Icons.Default.SettingsAccessibility
                                     else -> Icons.Default.Info
                                 },
                                 contentDescription = title,
@@ -240,8 +279,45 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // Gemini Live Audio-to-Audio Real-Time Streaming Section
+                    GeminiLiveCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Voice & TTS Customization Studio Section
+                    VoiceSettingsCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Default Digital Assistant Section
+                    DefaultAssistantCard(
+                        onTriggerVoiceListening = {
+                            val hasPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasPermission) {
+                                voiceManager.startListening()
+                            } else {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Call Announce + Voice Accept/Reject Section
+                    CallAnnounceCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     // Anti-Theft Guard Section
                     AntiTheftGuardCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Battery & Performance Diagnostics Section
+                    BatteryReportCard()
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -284,37 +360,79 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     DebugLogConsole()
                 }
                 1 -> {
-                    // TAB 1: ANTI-THEFT GUARD FOCUS
-                    AntiTheftGuardCard()
+                    // TAB 1: GEMINI LIVE AI STREAMING FOCUS
+                    GeminiLiveCard()
                     Spacer(modifier = Modifier.height(16.dp))
                     DebugLogConsole()
                 }
                 2 -> {
-                    // TAB 2: CAMERA & VISION FOCUS
-                    CameraControlCard()
+                    // TAB 2: VOICE STUDIO FOCUS
+                    VoiceSettingsCard()
                     Spacer(modifier = Modifier.height(16.dp))
                     DebugLogConsole()
                 }
                 3 -> {
-                    // TAB 3: REMINDERS & ALARMS FOCUS
-                    RemindersCard()
+                    // TAB 3: DEFAULT ASSISTANT FOCUS
+                    DefaultAssistantCard(
+                        onTriggerVoiceListening = {
+                            val hasPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasPermission) {
+                                voiceManager.startListening()
+                            } else {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
+                    )
                     Spacer(modifier = Modifier.height(16.dp))
                     DebugLogConsole()
                 }
                 4 -> {
-                    // TAB 4: WEATHER FOCUS
-                    WeatherCard()
+                    // TAB 4: CALL ANNOUNCE & VOICE CONTROL FOCUS
+                    CallAnnounceCard()
                     Spacer(modifier = Modifier.height(16.dp))
                     DebugLogConsole()
                 }
                 5 -> {
-                    // TAB 5: WHATSAPP AUTO-REPLY FOCUS
-                    WhatsAppAutoReplyCard()
+                    // TAB 5: ANTI-THEFT GUARD FOCUS
+                    AntiTheftGuardCard()
                     Spacer(modifier = Modifier.height(16.dp))
                     DebugLogConsole()
                 }
                 6 -> {
-                    // TAB 6: HARDWARE FOCUS
+                    // TAB 6: BATTERY & PERFORMANCE FOCUS
+                    BatteryReportCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                7 -> {
+                    // TAB 7: CAMERA & VISION FOCUS
+                    CameraControlCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                8 -> {
+                    // TAB 8: REMINDERS & ALARMS FOCUS
+                    RemindersCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                9 -> {
+                    // TAB 9: WEATHER FOCUS
+                    WeatherCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                10 -> {
+                    // TAB 10: WHATSAPP AUTO-REPLY FOCUS
+                    WhatsAppAutoReplyCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DebugLogConsole()
+                }
+                11 -> {
+                    // TAB 11: HARDWARE FOCUS
                     HardwareToggleGrid(
                         isAccessibilityEnabled = isAccessibilityActive,
                         onOpenAccessibilitySettings = {
@@ -324,8 +442,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     Spacer(modifier = Modifier.height(16.dp))
                     DebugLogConsole()
                 }
-                7 -> {
-                    // TAB 7: LOGS ONLY
+                12 -> {
+                    // TAB 12: LOGS ONLY
                     DebugLogConsole()
                 }
             }
@@ -570,6 +688,8 @@ private fun VoiceControlCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             val sampleCommands = listOf(
+                "utha lo",
+                "katt do",
                 "mera emergency contact 9876543210 hai",
                 "selfie lo",
                 "photo lo",

@@ -3,6 +3,8 @@ package com.example.manager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -32,6 +34,9 @@ sealed interface VoiceState {
 class VoiceCommandManager(private val context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.Main)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var silenceTimeoutRunnable: Runnable? = null
+
     private val _voiceState = MutableStateFlow<VoiceState>(VoiceState.Idle)
     val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
 
@@ -61,6 +66,7 @@ class VoiceCommandManager(private val context: Context) {
 
         val recognizer = speechRecognizer ?: run {
             _voiceState.value = VoiceState.Error("SpeechRecognizer unavailable on device")
+            BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
             return
         }
 
@@ -77,30 +83,53 @@ class VoiceCommandManager(private val context: Context) {
             }
 
             _voiceState.value = VoiceState.Listening
+            BatteryOptimizationManager.updateSubsystemState(voiceState = "ACTIVE (Listening)")
             recognizer.startListening(intent)
             DebugLogger.logInfo("Voice listening started (Hindi + English)...")
+
+            // Smart Inactivity Timeout: 6 seconds auto-sleep if no speech detected
+            clearSilenceTimer()
+            silenceTimeoutRunnable = Runnable {
+                if (_voiceState.value == VoiceState.Listening) {
+                    Log.d(TAG, "Smart Listening: Inactivity timeout reached, auto-closing mic to save battery")
+                    DebugLogger.logInfo("Smart Listening: Inactivity timeout, sleeping mic to conserve battery")
+                    cancelListening()
+                }
+            }
+            mainHandler.postDelayed(silenceTimeoutRunnable!!, 6000L)
+
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start listening", e)
             _voiceState.value = VoiceState.Error("Could not start listening: ${e.message}")
+            BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
         }
     }
 
     fun stopListening() {
+        clearSilenceTimer()
         try {
             speechRecognizer?.stopListening()
         } catch (e: Exception) {
             Log.w(TAG, "Error stopping listener", e)
         }
         _voiceState.value = VoiceState.Idle
+        BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
     }
 
     fun cancelListening() {
+        clearSilenceTimer()
         try {
             speechRecognizer?.cancel()
         } catch (e: Exception) {
             Log.w(TAG, "Error cancelling listener", e)
         }
         _voiceState.value = VoiceState.Idle
+        BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
+    }
+
+    private fun clearSilenceTimer() {
+        silenceTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        silenceTimeoutRunnable = null
     }
 
     fun processCommand(commandText: String) {
@@ -546,19 +575,26 @@ class VoiceCommandManager(private val context: Context) {
     private fun createRecognitionListener() = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
             _voiceState.value = VoiceState.Listening
+            BatteryOptimizationManager.updateSubsystemState(voiceState = "ACTIVE (Listening)")
         }
 
-        override fun onBeginningOfSpeech() {}
+        override fun onBeginningOfSpeech() {
+            clearSilenceTimer()
+            BatteryOptimizationManager.updateSubsystemState(voiceState = "PROCESSING (Speech Detected)")
+        }
 
         override fun onRmsChanged(rmsdB: Float) {}
 
         override fun onBufferReceived(buffer: ByteArray?) {}
 
         override fun onEndOfSpeech() {
+            clearSilenceTimer()
             _voiceState.value = VoiceState.Processing("Processing audio...")
+            BatteryOptimizationManager.updateSubsystemState(voiceState = "PROCESSING (Decoding)")
         }
 
         override fun onError(error: Int) {
+            clearSilenceTimer()
             val errorMsg = when (error) {
                 SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
                 SpeechRecognizer.ERROR_CLIENT -> "Client error"
@@ -573,9 +609,11 @@ class VoiceCommandManager(private val context: Context) {
             }
             Log.w(TAG, "SpeechRecognizer error: $errorMsg")
             _voiceState.value = VoiceState.Error(errorMsg)
+            BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
         }
 
         override fun onResults(results: Bundle?) {
+            clearSilenceTimer()
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             if (!matches.isNullOrEmpty()) {
                 val command = matches[0]
@@ -583,6 +621,7 @@ class VoiceCommandManager(private val context: Context) {
             } else {
                 _voiceState.value = VoiceState.Error("No match found")
             }
+            BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
@@ -596,12 +635,14 @@ class VoiceCommandManager(private val context: Context) {
     }
 
     fun destroy() {
+        clearSilenceTimer()
         try {
             speechRecognizer?.destroy()
             speechRecognizer = null
         } catch (e: Exception) {
             Log.w(TAG, "Error destroying speech recognizer", e)
         }
+        BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
     }
 
     companion object {

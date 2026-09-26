@@ -29,19 +29,21 @@ class ReminderReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "Reminder triggered: id=$reminderId, task=$task, isAlarm=$isAlarm")
 
-        // Exact required format: "REMINDER_TRIGGERED: task=<text>"
-        DebugLogger.logReminderTriggered(task)
+        com.example.manager.BatteryOptimizationManager.runWithSafeWakeLock(context, "ReminderNotification", 5000L) {
+            // Exact required format: "REMINDER_TRIGGERED: task=<text>"
+            DebugLogger.logReminderTriggered(task)
 
-        // Show Notification
-        showNotification(context, reminderId, task, isAlarm)
+            // Show Notification
+            showNotification(context, reminderId, task, isAlarm)
 
-        // Speak aloud via TTS in Hindi/English
-        val speakText = if (isAlarm) {
-            "अलार्म: $task. उठने या काम करने का समय हो गया है."
-        } else {
-            "याद दिला रहा हूँ: $task. समय हो गया है."
+            // Speak aloud via TTS in Hindi/English
+            val speakText = if (isAlarm) {
+                "अलार्म: $task. उठने या काम करने का समय हो गया है."
+            } else {
+                "याद दिला रहा हूँ: $task. समय हो गया है."
+            }
+            TtsManager.speak(speakText)
         }
-        TtsManager.speak(speakText)
 
         // Update database to mark reminder as completed
         if (reminderId != -1L) {

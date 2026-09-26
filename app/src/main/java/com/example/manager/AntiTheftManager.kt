@@ -71,6 +71,10 @@ object AntiTheftManager {
     private val _lastWrongPasswordTime = MutableStateFlow<String?>(null)
     val lastWrongPasswordTime: StateFlow<String?> = _lastWrongPasswordTime.asStateFlow()
 
+    private var callbackCountThisAttempt = 0
+    private var lastAttemptTimestamp = 0L
+    private const val DEBOUNCE_WINDOW_MS = 2500L
+
     fun init(context: Context) {
         val prefs = getPrefs(context)
         val name = prefs.getString(KEY_CONTACT_NAME, "") ?: ""
@@ -135,7 +139,26 @@ object AntiTheftManager {
      * Called immediately when wrong password/pattern/PIN is entered.
      * MUST BE COMPLETELY SILENT to the intruder.
      */
+    @Synchronized
     fun onWrongPasswordAttempt(context: Context) {
+        val now = System.currentTimeMillis()
+        val isNewAttempt = (now - lastAttemptTimestamp) > DEBOUNCE_WINDOW_MS
+
+        if (isNewAttempt) {
+            callbackCountThisAttempt = 1
+            lastAttemptTimestamp = now
+        } else {
+            callbackCountThisAttempt++
+        }
+
+        // Required Debug Log: "PASSWORD_FAIL_CALLBACK_COUNT: <count>"
+        DebugLogger.logPasswordFailCallbackCount(callbackCountThisAttempt)
+
+        if (!isNewAttempt) {
+            Log.d(TAG, "Debouncing duplicate callback #$callbackCountThisAttempt within $DEBOUNCE_WINDOW_MS ms")
+            return
+        }
+
         // Log required exact log: "WRONG_PASSWORD_DETECTED: true"
         DebugLogger.logWrongPasswordDetected()
 
@@ -210,57 +233,63 @@ object AntiTheftManager {
         context: Context,
         triggerType: String
     ): TheftIncident = withContext(Dispatchers.IO) {
-        val timeStamp = SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format(Date())
+        BatteryOptimizationManager.runWithSafeWakeLock(context, "TheftAlertPipeline", 15000L) {
+            BatteryOptimizationManager.updateSubsystemState(antiTheftState = "PROCESSING ($triggerType Alert)")
+            val timeStamp = SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format(Date())
 
-        // 1. Silent Photo Capture (Reusing MaxCameraManager.captureSilentBackgroundPhoto)
-        var photoFile: File? = null
-        try {
-            photoFile = MaxCameraManager.captureSilentBackgroundPhoto(context, useFrontCamera = true)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed capturing silent photo", e)
+            // 1. Silent Photo Capture (Reusing MaxCameraManager.captureSilentBackgroundPhoto)
+            var photoFile: File? = null
+            try {
+                photoFile = kotlinx.coroutines.runBlocking {
+                    MaxCameraManager.captureSilentBackgroundPhoto(context, useFrontCamera = true)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed capturing silent photo", e)
+            }
+
+            val photoSuccess = photoFile != null && photoFile.exists() && photoFile.length() > 0
+            DebugLogger.logTheftPhotoCaptured(
+                photoSuccess,
+                details = if (photoSuccess) photoFile!!.absolutePath else "Camera capture failed"
+            )
+
+            // 2. Fetch Current GPS Location
+            val location = kotlinx.coroutines.runBlocking { fetchCurrentLocation(context) }
+            val locationUrl = if (location != null) {
+                "https://maps.google.com/?q=${location.latitude},${location.longitude}"
+            } else {
+                null
+            }
+
+            // 3. Dispatch SMS Alert to Trusted Contact
+            val contact = _trustedContact.value
+            var smsSuccess = false
+
+            if (contact.phoneNumber.isNotBlank()) {
+                val alertMessage = buildAlertMessage(triggerType, timeStamp, locationUrl, photoSuccess)
+                smsSuccess = sendSilentSms(context, contact.phoneNumber, alertMessage)
+            } else {
+                DebugLogger.logInfo("No trusted contact phone set; SMS not sent")
+            }
+
+            DebugLogger.logTheftAlertSent(
+                smsSuccess,
+                details = if (smsSuccess) "Sent to ${contact.phoneNumber}" else "Trusted phone missing or SMS failed"
+            )
+
+            // 4. Save incident locally for user viewing
+            val incident = TheftIncident(
+                timestamp = timeStamp,
+                triggerType = triggerType,
+                photoPath = photoFile?.absolutePath,
+                locationUrl = locationUrl,
+                alertSent = smsSuccess
+            )
+
+            _incidents.value = listOf(incident) + _incidents.value.take(49)
+            BatteryOptimizationManager.updateSubsystemState(antiTheftState = "STANDBY (Broadcast-Driven)")
+            incident
         }
-
-        val photoSuccess = photoFile != null && photoFile.exists() && photoFile.length() > 0
-        DebugLogger.logTheftPhotoCaptured(
-            photoSuccess,
-            details = if (photoSuccess) photoFile!!.absolutePath else "Camera capture failed"
-        )
-
-        // 2. Fetch Current GPS Location
-        val location = fetchCurrentLocation(context)
-        val locationUrl = if (location != null) {
-            "https://maps.google.com/?q=${location.latitude},${location.longitude}"
-        } else {
-            null
-        }
-
-        // 3. Dispatch SMS Alert to Trusted Contact
-        val contact = _trustedContact.value
-        var smsSuccess = false
-
-        if (contact.phoneNumber.isNotBlank()) {
-            val alertMessage = buildAlertMessage(triggerType, timeStamp, locationUrl, photoSuccess)
-            smsSuccess = sendSilentSms(context, contact.phoneNumber, alertMessage)
-        } else {
-            DebugLogger.logInfo("No trusted contact phone set; SMS not sent")
-        }
-
-        DebugLogger.logTheftAlertSent(
-            smsSuccess,
-            details = if (smsSuccess) "Sent to ${contact.phoneNumber}" else "Trusted phone missing or SMS failed"
-        )
-
-        // 4. Save incident locally for user viewing
-        val incident = TheftIncident(
-            timestamp = timeStamp,
-            triggerType = triggerType,
-            photoPath = photoFile?.absolutePath,
-            locationUrl = locationUrl,
-            alertSent = smsSuccess
-        )
-
-        _incidents.value = listOf(incident) + _incidents.value.take(49)
-        return@withContext incident
     }
 
     private fun buildAlertMessage(

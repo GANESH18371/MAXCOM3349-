@@ -3,7 +3,6 @@ package com.example.receiver
 import android.app.admin.DeviceAdminReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.UserHandle
 import android.util.Log
 import com.example.manager.AntiTheftManager
 import com.example.util.DebugLogger
@@ -27,12 +26,6 @@ class MaxDeviceAdminReceiver : DeviceAdminReceiver() {
     override fun onPasswordFailed(context: Context, intent: Intent) {
         super.onPasswordFailed(context, intent)
         Log.w(TAG, "Device unlock password/PIN/pattern failed!")
-        AntiTheftManager.onWrongPasswordAttempt(context)
-    }
-
-    override fun onPasswordFailed(context: Context, intent: Intent, user: UserHandle) {
-        super.onPasswordFailed(context, intent, user)
-        Log.w(TAG, "Device unlock password/PIN/pattern failed for user: $user")
         AntiTheftManager.onWrongPasswordAttempt(context)
     }
 

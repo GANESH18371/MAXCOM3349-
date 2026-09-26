@@ -6,9 +6,20 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureFailure
+import android.hardware.camera2.CaptureRequest
+import android.media.ImageReader
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.provider.MediaStore
 import android.util.Log
+import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -267,16 +278,263 @@ object MaxCameraManager {
     }
 
     /**
-     * PART 3: SILENT / BACKGROUND PHOTO CAPTURE (Future Anti-Theft)
-     * Prepared function to capture a photo in the background without UI.
-     * Ready for future use; does not show any preview or alert.
+     * PART 3: SILENT / BACKGROUND PHOTO CAPTURE (Anti-Theft Guard)
+     * Uses low-level Camera2 API for completely headless background capture without UI or Lifecycle.
+     * Includes automatic fallback to CameraX if needed.
      */
     suspend fun captureSilentBackgroundPhoto(
         context: Context,
         useFrontCamera: Boolean = true
-    ): File? = withContext(Dispatchers.Main) {
-        if (!hasCameraPermission(context)) return@withContext null
+    ): File? {
+        if (!hasCameraPermission(context)) {
+            Log.w(TAG, "Cannot capture silent photo: CAMERA permission not granted")
+            return null
+        }
 
+        // Try Camera2 low-level API first (reliable in background & lock screen)
+        try {
+            val camera2File = captureSilentWithCamera2(context, useFrontCamera)
+            if (camera2File != null && camera2File.exists() && camera2File.length() > 0) {
+                Log.i(TAG, "Silent photo captured successfully via Camera2: ${camera2File.absolutePath}")
+                return camera2File
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Camera2 silent capture attempt failed, trying CameraX fallback", e)
+        }
+
+        // Fallback to CameraX if Camera2 fails
+        return try {
+            captureSilentWithCameraX(context, useFrontCamera)
+        } catch (e: Exception) {
+            Log.e(TAG, "Both Camera2 and CameraX silent capture failed", e)
+            null
+        }
+    }
+
+    /**
+     * Low-level Camera2 silent photo capture:
+     * Directly interacts with CameraManager, CameraDevice, and ImageReader.
+     * Does NOT require any active Activity, Fragment, or LifecycleOwner.
+     */
+    private suspend fun captureSilentWithCamera2(
+        context: Context,
+        useFrontCamera: Boolean
+    ): File? = withContext(Dispatchers.IO) {
+        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            ?: return@withContext null
+
+        try {
+            var targetCameraId: String? = null
+            var targetCharacteristics: CameraCharacteristics? = null
+
+            val targetFacing = if (useFrontCamera) {
+                CameraCharacteristics.LENS_FACING_FRONT
+            } else {
+                CameraCharacteristics.LENS_FACING_BACK
+            }
+
+            for (id in cameraManager.cameraIdList) {
+                val characteristics = cameraManager.getCameraCharacteristics(id)
+                val facing = characteristics.get(CameraCharacteristics.LENS_FACING)
+                if (facing == targetFacing) {
+                    targetCameraId = id
+                    targetCharacteristics = characteristics
+                    break
+                }
+            }
+
+            if (targetCameraId == null && cameraManager.cameraIdList.isNotEmpty()) {
+                targetCameraId = cameraManager.cameraIdList[0]
+                targetCharacteristics = cameraManager.getCameraCharacteristics(targetCameraId)
+            }
+
+            if (targetCameraId == null || targetCharacteristics == null) {
+                Log.e(TAG, "No suitable camera ID found for Camera2")
+                return@withContext null
+            }
+
+            // Pick optimal resolution for JPEG
+            val map = targetCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
+            val selectedSize = jpegSizes.filter { it.width in 640..1920 }
+                .minByOrNull { it.width * it.height }
+                ?: jpegSizes.firstOrNull()
+                ?: Size(1280, 720)
+
+            val imageReader = ImageReader.newInstance(
+                selectedSize.width,
+                selectedSize.height,
+                ImageFormat.JPEG,
+                2
+            )
+
+            val thread = HandlerThread("AntiTheftCamera2Thread").apply { start() }
+            val handler = Handler(thread.looper)
+
+            val outputFile = File(
+                context.cacheDir,
+                "theft_capture_${System.currentTimeMillis()}.jpg"
+            )
+
+            return@withContext suspendCancellableCoroutine { continuation ->
+                var cameraDevice: CameraDevice? = null
+                var captureSession: CameraCaptureSession? = null
+                var isCompleted = false
+
+                fun cleanup() {
+                    try {
+                        captureSession?.close()
+                    } catch (_: Exception) {}
+                    try {
+                        cameraDevice?.close()
+                    } catch (_: Exception) {}
+                    try {
+                        imageReader.close()
+                    } catch (_: Exception) {}
+                    try {
+                        thread.quitSafely()
+                    } catch (_: Exception) {}
+                }
+
+                fun finish(result: File?) {
+                    if (!isCompleted) {
+                        isCompleted = true
+                        cleanup()
+                        if (continuation.isActive) {
+                            continuation.resume(result)
+                        }
+                    }
+                }
+
+                imageReader.setOnImageAvailableListener({ reader ->
+                    try {
+                        val image = reader.acquireLatestImage()
+                        if (image != null) {
+                            val planes = image.planes
+                            if (planes.isNotEmpty()) {
+                                val buffer = planes[0].buffer
+                                val bytes = ByteArray(buffer.remaining())
+                                buffer.get(bytes)
+                                FileOutputStream(outputFile).use { fos ->
+                                    fos.write(bytes)
+                                    fos.flush()
+                                }
+                            }
+                            image.close()
+                            finish(outputFile)
+                        } else {
+                            finish(null)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error writing image buffer from Camera2", e)
+                        finish(null)
+                    }
+                }, handler)
+
+                val sessionCallback = object : CameraCaptureSession.StateCallback() {
+                    override fun onConfigured(session: CameraCaptureSession) {
+                        captureSession = session
+                        try {
+                            val dev = cameraDevice
+                            if (dev == null) {
+                                finish(null)
+                                return
+                            }
+                            val captureBuilder = dev.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                addTarget(imageReader.surface)
+                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                val sensorOrientation = targetCharacteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 270
+                                set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation)
+                            }
+
+                            session.capture(
+                                captureBuilder.build(),
+                                object : CameraCaptureSession.CaptureCallback() {
+                                    override fun onCaptureFailed(
+                                        session: CameraCaptureSession,
+                                        request: CaptureRequest,
+                                        failure: CaptureFailure
+                                    ) {
+                                        super.onCaptureFailed(session, request, failure)
+                                        Log.e(TAG, "Camera2 session capture failed")
+                                        finish(null)
+                                    }
+                                },
+                                handler
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error sending Camera2 capture request", e)
+                            finish(null)
+                        }
+                    }
+
+                    override fun onConfigureFailed(session: CameraCaptureSession) {
+                        Log.e(TAG, "Camera2 capture session configuration failed")
+                        finish(null)
+                    }
+                }
+
+                val deviceCallback = object : CameraDevice.StateCallback() {
+                    override fun onOpened(camera: CameraDevice) {
+                        cameraDevice = camera
+                        try {
+                            @Suppress("DEPRECATION")
+                            camera.createCaptureSession(
+                                listOf(imageReader.surface),
+                                sessionCallback,
+                                handler
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error creating Camera2 capture session", e)
+                            finish(null)
+                        }
+                    }
+
+                    override fun onDisconnected(camera: CameraDevice) {
+                        camera.close()
+                        finish(null)
+                    }
+
+                    override fun onError(camera: CameraDevice, error: Int) {
+                        Log.e(TAG, "Camera2 device callback error: $error")
+                        camera.close()
+                        finish(null)
+                    }
+                }
+
+                try {
+                    cameraManager.openCamera(targetCameraId, deviceCallback, handler)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to open camera via CameraManager", e)
+                    finish(null)
+                }
+
+                // Safety timeout after 5.5 seconds
+                handler.postDelayed({
+                    if (!isCompleted) {
+                        Log.w(TAG, "Camera2 capture timed out")
+                        finish(null)
+                    }
+                }, 5500)
+
+                continuation.invokeOnCancellation {
+                    cleanup()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Camera2 execution error", e)
+            return@withContext null
+        }
+    }
+
+    /**
+     * Fallback headless CameraX capture.
+     */
+    private suspend fun captureSilentWithCameraX(
+        context: Context,
+        useFrontCamera: Boolean
+    ): File? = withContext(Dispatchers.Main) {
         return@withContext suspendCancellableCoroutine { continuation ->
             val mainExecutor = ContextCompat.getMainExecutor(context)
             val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -323,7 +581,7 @@ object MaxCameraManager {
                         }
                     )
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error in silent photo capture", e)
+                    Log.e(TAG, "Error in CameraX fallback capture", e)
                     if (continuation.isActive) {
                         continuation.resume(null)
                     }

@@ -121,6 +121,14 @@ object AppContextManager {
         _contextState.value = ContextState()
     }
 
+    fun updateScreenContext(packageName: String, title: String, extractedText: String) {
+        if (packageName.isNotBlank()) {
+            val app = InstalledApp(packageName = packageName, name = title.ifBlank { packageName })
+            recordAppOpen(app)
+        }
+        DebugLogger.logInfo("Assist context captured: $title ($packageName)")
+    }
+
     /**
      * Checks if a command contains referring words like "iska", "usko", "wahi", "yeh wala", "it", etc.
      * or is an ambiguous action without explicit subject.
