@@ -1,6 +1,7 @@
 package com.example.manager
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
@@ -16,6 +17,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import com.example.MainActivity
 import com.example.service.MaxAccessibilityService
 import com.example.util.DebugLogger
 import com.example.util.ToggleMethod
@@ -267,39 +269,44 @@ object HardwareToggleManager {
     fun toggleBrightness(context: Context, targetLevelPercent: Int? = null): Boolean {
         DebugLogger.logToggleAttempt("Brightness", ToggleMethod.DIRECT)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.System.canWrite(context)) {
-            DebugLogger.logToggleResult(false, "Requires Write Settings permission")
+        val contentResolver = context.contentResolver
+        val current = try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
+        } catch (_: Exception) {
+            128
+        }
+
+        val targetPercent = targetLevelPercent ?: when {
+            current < 70 -> 50  // Go to 50%
+            current < 180 -> 100 // Go to 100%
+            else -> 20          // Go to ~20%
+        }
+        val newLevel = ((targetPercent * 255) / 100).coerceIn(10, 255)
+
+        // 1. Immediately apply window-level brightness (100% permission-free)
+        val activity = (context as? Activity) ?: MainActivity.currentActivity
+        activity?.runOnUiThread {
             try {
-                val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                    data = android.net.Uri.parse("package:${context.packageName}")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                context.startActivity(intent)
+                val layoutParams = activity.window.attributes
+                layoutParams.screenBrightness = (targetPercent / 100f).coerceIn(0.05f, 1.0f)
+                activity.window.attributes = layoutParams
             } catch (e: Exception) {
-                Log.e(TAG, "Could not open write settings intent", e)
+                Log.w(TAG, "Window brightness adjustment failed", e)
             }
-            return false
         }
 
-        return try {
-            val contentResolver = context.contentResolver
-            val current = Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
-            val newLevel = when {
-                targetLevelPercent != null -> (targetLevelPercent * 255) / 100
-                current < 70 -> 128  // Go to 50%
-                current < 180 -> 255 // Go to 100%
-                else -> 40          // Go to ~15%
+        // 2. If WRITE_SETTINGS is available, also apply to system-wide settings
+        val canWrite = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.System.canWrite(context)
+        if (canWrite) {
+            try {
+                Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, newLevel)
+            } catch (e: Exception) {
+                Log.w(TAG, "System brightness adjustment failed", e)
             }
-
-            Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, newLevel)
-            val percent = (newLevel * 100) / 255
-            DebugLogger.logToggleResult(true, "Set to $percent%")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Brightness adjustment failed", e)
-            DebugLogger.logToggleResult(false, e.message ?: "Write failed")
-            false
         }
+
+        DebugLogger.logToggleResult(true, "Set to $targetPercent%")
+        return true
     }
 
     /**

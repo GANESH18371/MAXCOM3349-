@@ -81,6 +81,7 @@ object GeminiLiveManager {
 
     private var currentSpeakingModelText = StringBuilder()
     private var commandRouterCallback: ((String) -> Unit)? = null
+    private var liveContext: Context? = null
 
     fun setCommandRouter(callback: (String) -> Unit) {
         commandRouterCallback = callback
@@ -90,6 +91,7 @@ object GeminiLiveManager {
      * Starts the real-time Gemini Live audio streaming session.
      */
     fun startLiveSession(context: Context) {
+        liveContext = context.applicationContext
         if (_connectionState.value == LiveConnectionState.CONNECTING ||
             _connectionState.value == LiveConnectionState.LISTENING ||
             _connectionState.value == LiveConnectionState.SPEAKING
@@ -230,6 +232,12 @@ object GeminiLiveManager {
         try {
             val contextApp = AppContextManager.getCurrentApp()?.name
             val contextInfo = if (contextApp != null) "The user is currently using app: $contextApp." else ""
+            val memorySummary = liveContext?.let {
+                kotlinx.coroutines.runBlocking {
+                    com.example.manager.PermanentMemoryManager.getAllMemoriesSummary(it)
+                }
+            } ?: ""
+            val memoryInfo = if (memorySummary.isNotBlank()) "User preferences and known facts: [$memorySummary]." else ""
 
             val setupJson = JSONObject().apply {
                 val setupObj = JSONObject().apply {
@@ -261,7 +269,7 @@ object GeminiLiveManager {
                                 "text",
                                 "You are Max, a hyper-fast intelligent bilingual assistant (Hindi & English). " +
                                         "Speak naturally, briefly, and helpfully in 1-2 sentences. " +
-                                        "$contextInfo " +
+                                        "$contextInfo $memoryInfo " +
                                         "If the user asks to open an app (e.g. YouTube, Camera), toggle hardware (Torch, Wifi, Bluetooth), check weather, or set alarms, state your response concisely."
                             )
                             put(partObj)

@@ -3,9 +3,9 @@ package com.example.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,20 +27,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.SettingsAccessibility
-import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.HeadsetMic
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -57,22 +54,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.PhoneCallback
-import androidx.compose.material.icons.filled.BatteryFull
-import androidx.compose.material.icons.filled.Assistant
-import androidx.compose.material.icons.filled.HeadsetMic
 import com.example.live.GeminiLiveManager
 import com.example.manager.AppContextManager
 import com.example.manager.DefaultAssistantManager
@@ -89,20 +81,34 @@ import com.example.ui.components.DefaultAssistantCard
 import com.example.ui.components.GeminiLiveCard
 import com.example.ui.components.HardwareToggleGrid
 import com.example.ui.components.MicButton
+import com.example.ui.components.PermanentMemoryCard
 import com.example.ui.components.RemindersCard
 import com.example.ui.components.VoiceSettingsCard
 import com.example.ui.components.WeatherCard
 import com.example.ui.components.WhatsAppAutoReplyCard
+import com.example.ui.components.jarvis.JarvisArcReactor
+import com.example.ui.components.jarvis.JarvisControlCenterGrid
+import com.example.ui.components.jarvis.JarvisHeader
+import com.example.ui.components.jarvis.JarvisRemindersCard
+import com.example.ui.components.jarvis.JarvisSystemNotificationsCard
+import com.example.ui.components.jarvis.JarvisTelemetryGauges
+import com.example.ui.components.jarvis.JarvisWeatherCard
 import com.example.ui.theme.CyberCyan
-import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkOutline
-import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.DarkSurfaceCard
 import com.example.ui.theme.DarkSurfaceVariant
+import com.example.ui.theme.JarvisBackground
+import com.example.ui.theme.JarvisCard
+import com.example.ui.theme.JarvisCardBorder
+import com.example.ui.theme.JarvisCyan
+import com.example.ui.theme.JarvisNeonAmber
+import com.example.ui.theme.JarvisNeonGreen
+import com.example.ui.theme.JarvisSurface
+import com.example.ui.theme.JarvisTextDim
+import com.example.ui.theme.JarvisTextPrimary
+import com.example.ui.theme.JarvisTextSecondary
 import com.example.ui.theme.NeonAmber
-import com.example.ui.theme.NeonLime
 import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -154,6 +160,24 @@ fun MainScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    // Trigger voice listening helper
+    val triggerVoiceListening: () -> Unit = {
+        if (voiceState is VoiceState.Listening) {
+            voiceManager.stopListening()
+        } else {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (hasPermission) {
+                voiceManager.startListening()
+            } else {
+                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+
     // Auto-start voice listening when Digital Assistant gesture / Assist Intent fires
     val autoListenRequest by DefaultAssistantManager.autoListenRequest.collectAsState()
     LaunchedEffect(autoListenRequest) {
@@ -176,46 +200,48 @@ fun MainScreen(modifier: Modifier = Modifier) {
     }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = JarvisBackground,
         bottomBar = {
             NavigationBar(
-                containerColor = DarkSurface,
+                containerColor = JarvisSurface,
                 tonalElevation = 0.dp,
-                modifier = Modifier.border(1.dp, DarkOutline.copy(alpha = 0.5f), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                modifier = Modifier.border(
+                    1.dp,
+                    JarvisCardBorder,
+                    RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                )
             ) {
-                val tabs = listOf("Dashboard", "Gemini Live", "Voice Studio", "Assistant", "Calls", "Guard", "Battery", "Camera", "Reminders", "Weather", "WhatsApp", "Hardware", "Logs")
-                tabs.forEachIndexed { index, title ->
+                val tabs = listOf(
+                    Triple("Dashboard", Icons.Default.Dashboard, 0),
+                    Triple("Assistant", Icons.Default.HeadsetMic, 1),
+                    Triple("Tools", Icons.Default.Build, 2),
+                    Triple("Settings", Icons.Default.Settings, 3)
+                )
+                tabs.forEach { (title, icon, index) ->
                     NavigationBarItem(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        label = { Text(title, fontSize = 7.5.sp, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) },
+                        label = {
+                            Text(
+                                text = title,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
                         icon = {
                             Icon(
-                                imageVector = when (index) {
-                                    0 -> Icons.Default.Bolt
-                                    1 -> Icons.Default.HeadsetMic
-                                    2 -> Icons.Default.Mic
-                                    3 -> Icons.Default.Assistant
-                                    4 -> Icons.Default.PhoneCallback
-                                    5 -> Icons.Default.Security
-                                    6 -> Icons.Default.BatteryFull
-                                    7 -> Icons.Default.CameraAlt
-                                    8 -> Icons.Default.Alarm
-                                    9 -> Icons.Default.WbSunny
-                                    10 -> Icons.Default.Mic
-                                    11 -> Icons.Default.SettingsAccessibility
-                                    else -> Icons.Default.Info
-                                },
+                                imageVector = icon,
                                 contentDescription = title,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = CyberCyan,
-                            selectedTextColor = CyberCyan,
-                            unselectedIconColor = TextMuted,
-                            unselectedTextColor = TextMuted,
-                            indicatorColor = CyberCyan.copy(alpha = 0.15f)
+                            selectedIconColor = JarvisCyan,
+                            selectedTextColor = JarvisCyan,
+                            unselectedIconColor = JarvisTextDim,
+                            unselectedTextColor = JarvisTextDim,
+                            indicatorColor = JarvisCyan.copy(alpha = 0.15f)
                         )
                     )
                 }
@@ -228,50 +254,90 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
-            // Top Header
-            HeaderBar(
-                isAccessibilityActive = isAccessibilityActive,
-                onEnableAccessibility = {
-                    MaxAccessibilityService.openAccessibilitySettings(context)
-                }
-            )
-
-            // Guidance Banner when Accessibility is not yet enabled
-            if (!isAccessibilityActive) {
-                Spacer(modifier = Modifier.height(10.dp))
-                AccessibilitySetupCard(
-                    onEnableClick = {
-                        MaxAccessibilityService.openAccessibilitySettings(context)
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
             when (selectedTab) {
                 0 -> {
-                    // TAB 0: DASHBOARD (ALL IN ONE)
-                    // Voice Mic Section
+                    // ==========================================
+                    // TAB 0: JARVIS FUTURISTIC DASHBOARD
+                    // ==========================================
+
+                    // 1. Futuristic Header
+                    JarvisHeader()
+
+                    // Accessibility Guidance Banner if inactive
+                    if (!isAccessibilityActive) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        AccessibilitySetupCard(
+                            onEnableClick = {
+                                MaxAccessibilityService.openAccessibilitySettings(context)
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 2. Central Animated Arc Reactor Visual
+                    JarvisArcReactor(
+                        voiceState = voiceState,
+                        onTriggerListening = triggerVoiceListening
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 3. Circular / Arc Progress Gauges (Battery %, RAM %, Storage %)
+                    JarvisTelemetryGauges()
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 4. Live Meteorological / Weather HUD Card
+                    JarvisWeatherCard()
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 5. Upcoming Reminders & Chrono Tasks Card
+                    JarvisRemindersCard(
+                        onNavigateToReminders = { selectedTab = 2 }
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 6. System Daemon & Security Notifications
+                    JarvisSystemNotificationsCard()
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 7. 2-Column Glowing Control-Center Matrix Grid
+                    JarvisControlCenterGrid(
+                        onTriggerVoice = triggerVoiceListening,
+                        onNavigateToAssistant = { selectedTab = 1 },
+                        onNavigateToTools = { selectedTab = 2 },
+                        onNavigateToSettings = { selectedTab = 3 }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                1 -> {
+                    // ==========================================
+                    // TAB 1: ASSISTANT & CONVERSATION MATRIX
+                    // ==========================================
+                    JarvisSectionHeader(
+                        title = "NEURAL CONVERSATION & GEMINI LIVE",
+                        subtitle = "Real-time audio-to-audio streaming with model gemini-3.8-live"
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Gemini Live Audio-to-Audio Real-Time Streaming Card
+                    GeminiLiveCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Voice Command Card with Quick Chips & Context Aware State
                     VoiceControlCard(
                         voiceState = voiceState,
-                        onMicClick = {
-                            if (voiceState is VoiceState.Listening) {
-                                voiceManager.stopListening()
-                            } else {
-                                val hasPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-
-                                if (hasPermission) {
-                                    voiceManager.startListening()
-                                } else {
-                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
-                            }
-                        },
+                        onMicClick = triggerVoiceListening,
                         onQuickCommand = { command ->
                             voiceManager.processCommand(command)
                         }
@@ -279,40 +345,52 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Gemini Live Audio-to-Audio Real-Time Streaming Section
-                    GeminiLiveCard()
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Voice & TTS Customization Studio Section
-                    VoiceSettingsCard()
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Default Digital Assistant Section
+                    // Default Digital Assistant System Status
                     DefaultAssistantCard(
-                        onTriggerVoiceListening = {
-                            val hasPermission = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasPermission) {
-                                voiceManager.startListening()
-                            } else {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
+                        onTriggerVoiceListening = triggerVoiceListening
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                2 -> {
+                    // ==========================================
+                    // TAB 2: HARDWARE & SUBSYSTEM MATRIX (TOOLS)
+                    // ==========================================
+                    JarvisSectionHeader(
+                        title = "SUBSYSTEM & UTILITY MATRIX",
+                        subtitle = "Hardware toggles, cameras, sentry guard & local daemons"
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Hardware Controls Grid (Torch, Wi-Fi, BT, Volume, etc.)
+                    HardwareToggleGrid(
+                        isAccessibilityEnabled = isAccessibilityActive,
+                        onOpenAccessibilitySettings = {
+                            MaxAccessibilityService.openAccessibilitySettings(context)
                         }
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Call Announce + Voice Accept/Reject Section
-                    CallAnnounceCard()
+                    // App Launcher Matrix
+                    AppLauncherSection()
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Anti-Theft Guard Section
+                    // Camera & Vision Section (Gemini Scene Analysis & Silent Photo)
+                    CameraControlCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Anti-Theft Guard Security Sentry
                     AntiTheftGuardCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Call Announce + Voice Accept/Reject
+                    CallAnnounceCard()
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -321,17 +399,12 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Camera & Vision Section
-                    CameraControlCard()
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Live Weather Section
+                    // Full Weather Module
                     WeatherCard()
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Reminders & Alarms Section
+                    // Full Reminders & Alarms Module
                     RemindersCard()
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -340,116 +413,70 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     WhatsAppAutoReplyCard()
 
                     Spacer(modifier = Modifier.height(16.dp))
-
-                    // Hardware Controls Grid
-                    HardwareToggleGrid(
-                        isAccessibilityEnabled = isAccessibilityActive,
-                        onOpenAccessibilitySettings = {
-                            MaxAccessibilityService.openAccessibilitySettings(context)
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // App Open Section
-                    AppLauncherSection()
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Live Debug Log Terminal
-                    DebugLogConsole()
                 }
-                1 -> {
-                    // TAB 1: GEMINI LIVE AI STREAMING FOCUS
-                    GeminiLiveCard()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                2 -> {
-                    // TAB 2: VOICE STUDIO FOCUS
-                    VoiceSettingsCard()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
+
                 3 -> {
-                    // TAB 3: DEFAULT ASSISTANT FOCUS
-                    DefaultAssistantCard(
-                        onTriggerVoiceListening = {
-                            val hasPermission = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasPermission) {
-                                voiceManager.startListening()
-                            } else {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        }
+                    // ==========================================
+                    // TAB 3: SETTINGS & SYSTEM STUDIO
+                    // ==========================================
+                    JarvisSectionHeader(
+                        title = "SYSTEM STUDIO & PERMANENT MEMORY",
+                        subtitle = "Persistent memory facts, TTS pitch & rate, live log terminal"
                     )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Permanent Long-Term Memory Core (Room Persistent Store)
+                    PermanentMemoryCard()
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                4 -> {
-                    // TAB 4: CALL ANNOUNCE & VOICE CONTROL FOCUS
-                    CallAnnounceCard()
+
+                    // Voice & TTS Customization Studio (Pitch, Speed, Voice, Language)
+                    VoiceSettingsCard()
+
                     Spacer(modifier = Modifier.height(16.dp))
+
+                    // Live Debug Log Terminal Console
                     DebugLogConsole()
-                }
-                5 -> {
-                    // TAB 5: ANTI-THEFT GUARD FOCUS
-                    AntiTheftGuardCard()
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                6 -> {
-                    // TAB 6: BATTERY & PERFORMANCE FOCUS
-                    BatteryReportCard()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                7 -> {
-                    // TAB 7: CAMERA & VISION FOCUS
-                    CameraControlCard()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                8 -> {
-                    // TAB 8: REMINDERS & ALARMS FOCUS
-                    RemindersCard()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                9 -> {
-                    // TAB 9: WEATHER FOCUS
-                    WeatherCard()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                10 -> {
-                    // TAB 10: WHATSAPP AUTO-REPLY FOCUS
-                    WhatsAppAutoReplyCard()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                11 -> {
-                    // TAB 11: HARDWARE FOCUS
-                    HardwareToggleGrid(
-                        isAccessibilityEnabled = isAccessibilityActive,
-                        onOpenAccessibilitySettings = {
-                            MaxAccessibilityService.openAccessibilitySettings(context)
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    DebugLogConsole()
-                }
-                12 -> {
-                    // TAB 12: LOGS ONLY
-                    DebugLogConsole()
                 }
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
         }
+    }
+}
+
+@Composable
+private fun JarvisSectionHeader(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(JarvisCyan, CircleShape)
+            )
+            Text(
+                text = title,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = JarvisCyan,
+                letterSpacing = 1.sp
+            )
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = subtitle,
+            fontSize = 11.sp,
+            color = JarvisTextSecondary
+        )
     }
 }
 
@@ -459,47 +486,50 @@ private fun AccessibilitySetupCard(
 ) {
     Card(
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
+        colors = CardDefaults.cardColors(containerColor = JarvisCard),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, NeonAmber.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .border(1.dp, JarvisNeonAmber.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .testTag("accessibility_setup_card")
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = null,
-                tint = NeonAmber,
-                modifier = Modifier.size(24.dp)
-            )
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Enable Max Accessibility Service",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = JarvisNeonAmber,
+                    modifier = Modifier.size(20.dp)
                 )
-                Text(
-                    text = "Allows Max to automatically tap Quick Settings tiles (WiFi, BT, Data, Hotspot) without leaving the app.",
-                    fontSize = 10.sp,
-                    color = TextSecondary,
-                    lineHeight = 14.sp
-                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "ACCESSIBILITY PERMISSION REQUIRED",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = JarvisNeonAmber
+                    )
+                    Text(
+                        text = "Enable Max service for hardware toggles & back button control",
+                        fontSize = 10.sp,
+                        color = JarvisTextSecondary
+                    )
+                }
             }
-
             Spacer(modifier = Modifier.width(8.dp))
-
             Button(
                 onClick = onEnableClick,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = NeonAmber,
+                    containerColor = JarvisNeonAmber,
                     contentColor = Color.Black
                 ),
                 shape = RoundedCornerShape(8.dp),
@@ -511,103 +541,6 @@ private fun AccessibilitySetupCard(
                     imageVector = Icons.Default.ChevronRight,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun HeaderBar(
-    isAccessibilityActive: Boolean,
-    onEnableAccessibility: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(38.dp)
-                    .background(
-                        Brush.radialGradient(listOf(CyberCyan, Color(0xFF0D47A1))),
-                        CircleShape
-                    )
-                    .border(1.5.dp, CyberCyan, CircleShape)
-            ) {
-                Text(
-                    text = "M",
-                    color = Color.Black,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 20.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "MAX",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = TextPrimary,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .background(NeonLime.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                            .border(1.dp, NeonLime.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                    ) {
-                        Text(
-                            text = "100% OFFLINE",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = NeonLime
-                        )
-                    }
-                }
-                Text(
-                    text = "App Launcher & Hardware Toggles",
-                    fontSize = 11.sp,
-                    color = TextSecondary
-                )
-            }
-        }
-
-        // Accessibility Service Button
-        Box(
-            modifier = Modifier
-                .background(
-                    if (isAccessibilityActive) NeonLime.copy(alpha = 0.12f) else NeonAmber.copy(alpha = 0.15f),
-                    RoundedCornerShape(20.dp)
-                )
-                .border(
-                    1.dp,
-                    if (isAccessibilityActive) NeonLime.copy(alpha = 0.4f) else NeonAmber.copy(alpha = 0.5f),
-                    RoundedCornerShape(20.dp)
-                )
-                .clickable { onEnableAccessibility() }
-                .padding(horizontal = 10.dp, vertical = 6.dp)
-                .testTag("header_accessibility_pill")
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(if (isAccessibilityActive) NeonLime else NeonAmber, CircleShape)
-                )
-                Spacer(modifier = Modifier.width(5.dp))
-                Text(
-                    text = if (isAccessibilityActive) "Accessibility ON" else "Enable Service",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isAccessibilityActive) NeonLime else NeonAmber
                 )
             }
         }
@@ -688,6 +621,13 @@ private fun VoiceControlCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             val sampleCommands = listOf(
+                "meri favorite app YouTube hai",
+                "meri favorite app kholo",
+                "tumhe mere baare me kya pata hai",
+                "mujhe chai pasand hai",
+                "mujhe kya pasand hai",
+                "yeh yaad rakhna: subah walk par jaana hai",
+                "walk bhool jao",
                 "utha lo",
                 "katt do",
                 "mera emergency contact 9876543210 hai",
@@ -697,10 +637,8 @@ private fun VoiceControlCard(
                 "aaj ka mausam kaisa hai",
                 "5 baje chai ka yaad dilana",
                 "7 baje alarm laga do",
-                "mere saare reminders batao",
                 "auto-reply on karo",
                 "यूट्यूब खोलो",
-                "इसका वॉल्यूम बढ़ाओ",
                 "Torch on karo",
                 "WiFi band karo"
             )

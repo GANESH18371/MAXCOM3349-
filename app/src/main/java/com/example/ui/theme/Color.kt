@@ -2,21 +2,40 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val CyberCyan = Color(0xFF00E5FF)
+// Core Jarvis HUD Palette
+val JarvisBackground = Color(0xFF040811)
+val JarvisSurface = Color(0xFF081322)
+val JarvisCard = Color(0xFF0B192C)
+val JarvisCardBorder = Color(0xFF132F4C)
+val JarvisBorderGlow = Color(0xFF00E5FF)
+
+val JarvisCyan = Color(0xFF00E5FF)
+val JarvisTeal = Color(0xFF00B4D8)
+val JarvisDeepCyan = Color(0xFF0077B6)
+val JarvisNeonGreen = Color(0xFF00FF9D)
+val JarvisNeonAmber = Color(0xFFFFB703)
+val JarvisNeonRed = Color(0xFFFF3366)
+
+val JarvisTextPrimary = Color(0xFFE2F1FF)
+val JarvisTextSecondary = Color(0xFF7E9BB8)
+val JarvisTextDim = Color(0xFF415C7B)
+
+// Existing Colors Preserved For Backward Compatibility
+val CyberCyan = JarvisCyan
 val CyberCyanDim = Color(0xFF0097A7)
-val NeonLime = Color(0xFF76FF03)
-val NeonAmber = Color(0xFFFFAB00)
-val NeonRed = Color(0xFFFF5252)
+val NeonLime = JarvisNeonGreen
+val NeonAmber = JarvisNeonAmber
+val NeonRed = JarvisNeonRed
 
-val DarkBackground = Color(0xFF0A0E17)
-val DarkSurface = Color(0xFF131B2B)
-val DarkSurfaceVariant = Color(0xFF1C273C)
-val DarkSurfaceCard = Color(0xFF162134)
-val DarkOutline = Color(0xFF263750)
+val DarkBackground = JarvisBackground
+val DarkSurface = JarvisSurface
+val DarkSurfaceVariant = Color(0xFF0E1F35)
+val DarkSurfaceCard = JarvisCard
+val DarkOutline = JarvisCardBorder
 
-val TextPrimary = Color(0xFFF1F5F9)
-val TextSecondary = Color(0xFF94A3B8)
-val TextMuted = Color(0xFF64748B)
+val TextPrimary = JarvisTextPrimary
+val TextSecondary = JarvisTextSecondary
+val TextMuted = JarvisTextDim
 
 val SuccessGreen = Color(0xFF10B981)
 val AccentPurple = Color(0xFFA855F7)

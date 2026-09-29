@@ -47,6 +47,7 @@ class VoiceCommandManager(private val context: Context) {
 
     init {
         initRecognizer()
+        PermanentMemoryManager.init(context)
     }
 
     private fun initRecognizer() {
@@ -141,6 +142,35 @@ class VoiceCommandManager(private val context: Context) {
         DebugLogger.logInfo("Processing voice command: \"$trimmed\"")
 
         val lower = trimmed.lowercase(Locale.getDefault())
+
+        // =========================================================================
+        // STEP 0.0: PERMANENT LONG-TERM MEMORY LAYER
+        // =========================================================================
+        if (PermanentMemoryManager.isMemoryCommand(lower)) {
+            scope.launch {
+                val memResult = PermanentMemoryManager.handleMemoryCommand(trimmed, context)
+                when (memResult) {
+                    is MemoryCommandResult.LaunchFavoriteApp -> {
+                        val launched = AppOpenManager.processAndLaunch(context, memResult.appName)
+                        if (launched) {
+                            TtsManager.speak("Aapki favorite app ${memResult.appName} khol raha hoon.")
+                            _voiceState.value = VoiceState.Success("Opened favorite app: ${memResult.appName}")
+                        } else {
+                            val msg = "Favorite app '${memResult.appName}' open nahi ho saki."
+                            TtsManager.speak(msg)
+                            _voiceState.value = VoiceState.Error(msg)
+                        }
+                    }
+                    is MemoryCommandResult.Handled -> {
+                        _voiceState.value = VoiceState.Success(memResult.message)
+                    }
+                    is MemoryCommandResult.NotMemoryCommand -> {
+                        // proceed to context and hardware routing
+                    }
+                }
+            }
+            return
+        }
 
         // =========================================================================
         // STEP 0: CONTEXT AWARENESS LAYER (Added on top of existing working logic)

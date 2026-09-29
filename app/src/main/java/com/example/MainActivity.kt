@@ -15,6 +15,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        currentActivity = this
         enableEdgeToEdge()
 
         // Initialize local hardware managers
@@ -32,6 +33,18 @@ class MainActivity : ComponentActivity() {
             AppTheme {
                 MainScreen()
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        currentActivity = this
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (currentActivity == this) {
+            currentActivity = null
         }
     }
 
@@ -57,6 +70,9 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        var currentActivity: MainActivity? = null
+            private set
+
         const val EXTRA_AUTO_START_LISTENING = "extra_auto_start_listening"
         const val EXTRA_TRIGGER_SOURCE = "extra_trigger_source"
     }
