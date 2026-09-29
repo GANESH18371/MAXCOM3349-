@@ -99,14 +99,10 @@ object GeminiLiveManager {
             return
         }
 
-        val apiKey = try {
-            BuildConfig.GEMINI_API_KEY
-        } catch (_: Throwable) {
-            ""
-        }
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(context)
 
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            val err = "Gemini API Key missing! Please set GEMINI_API_KEY in Secrets / Settings."
+        if (apiKey.isBlank()) {
+            val err = "Gemini API Key missing! Please set your Gemini API key in Settings."
             _lastErrorMessage.value = err
             _connectionState.value = LiveConnectionState.ERROR
             DebugLogger.logInfo("GEMINI_LIVE_ERROR: $err")

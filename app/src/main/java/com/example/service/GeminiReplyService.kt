@@ -24,17 +24,13 @@ object GeminiReplyService {
         .build()
 
     suspend fun generateAutoReply(sender: String, messageText: String): String = withContext(Dispatchers.IO) {
-        val apiKey = try {
-            BuildConfig.GEMINI_API_KEY
-        } catch (_: Throwable) {
-            ""
-        }
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
 
         // Context info from active app / interactions
         val currentApp = AppContextManager.getCurrentApp()?.name
         val contextInfo = if (currentApp != null) "User is currently in app: $currentApp." else ""
 
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+        if (apiKey.isBlank()) {
             DebugLogger.logInfo("Gemini API key not configured, generating contextual offline smart reply")
             return@withContext generateFallbackReply(sender, messageText)
         }
@@ -109,13 +105,9 @@ object GeminiReplyService {
      * Multimodal scene analysis via Gemini Vision API
      */
     suspend fun analyzeSceneImage(imageBytes: ByteArray): String = withContext(Dispatchers.IO) {
-        val apiKey = try {
-            BuildConfig.GEMINI_API_KEY
-        } catch (_: Throwable) {
-            ""
-        }
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
 
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+        if (apiKey.isBlank()) {
             DebugLogger.logInfo("Gemini API key not configured, returning local scene fallback")
             return@withContext "सामने एक कमरा और वस्तुएं दिखाई दे रही हैं. स्पष्ट विवरण के लिए Gemini API Key कॉन्फ़िगर करें."
         }

@@ -78,6 +78,7 @@ import com.example.ui.components.CallAnnounceCard
 import com.example.ui.components.CameraControlCard
 import com.example.ui.components.DebugLogConsole
 import com.example.ui.components.DefaultAssistantCard
+import com.example.ui.components.GeminiApiKeyCard
 import com.example.ui.components.GeminiLiveCard
 import com.example.ui.components.HardwareToggleGrid
 import com.example.ui.components.MicButton
@@ -420,11 +421,16 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     // TAB 3: SETTINGS & SYSTEM STUDIO
                     // ==========================================
                     JarvisSectionHeader(
-                        title = "SYSTEM STUDIO & PERMANENT MEMORY",
-                        subtitle = "Persistent memory facts, TTS pitch & rate, live log terminal"
+                        title = "SETTINGS & NEURAL VAULT",
+                        subtitle = "Centralized Gemini API key, permanent memory & TTS studio"
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
+
+                    // Centralized Gemini API Key Vault Card (AES-256 Encrypted)
+                    GeminiApiKeyCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Permanent Long-Term Memory Core (Room Persistent Store)
                     PermanentMemoryCard()
