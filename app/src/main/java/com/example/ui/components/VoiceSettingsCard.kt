@@ -325,9 +325,81 @@ fun VoiceSettingsCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // Gemini Live vs Central System TTS Distinction Note & Live Voice Selector
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, CyberCyan.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Hearing,
+                            contentDescription = null,
+                            tint = CyberCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "GEMINI LIVE CONVERSATION VOICE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                    }
+
+                    Text(
+                        text = "Note: Live conversation voice Gemini's built-in neural streaming voice hai (Puck, Aoede, Charon, Fenrir, Kore). Offline system announcements (app launch, toggles, memory, weather) use the Central Natural TTS Engine above.",
+                        fontSize = 10.sp,
+                        color = TextSecondary,
+                        lineHeight = 14.sp
+                    )
+
+                    // Live Voice Personality Selector
+                    val currentLiveVoice by TtsManager.geminiLiveVoice.collectAsState()
+                    val liveVoices = listOf("Puck", "Aoede", "Charon", "Fenrir", "Kore")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        liveVoices.forEach { voiceName ->
+                            val isSel = currentLiveVoice == voiceName
+                            Button(
+                                onClick = { TtsManager.setGeminiLiveVoice(context, voiceName) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSel) CyberCyan else DarkSurfaceCard
+                                ),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(30.dp)
+                            ) {
+                                Text(
+                                    text = voiceName,
+                                    fontSize = 9.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSel) Color.Black else TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
             // Test Voice Buttons
             Text(
-                text = "TEST UNIFIED VOICE (HINDI & ENGLISH)",
+                text = "TEST UNIFIED SYSTEM VOICE ACTIONS",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextMuted,
@@ -335,60 +407,87 @@ fun VoiceSettingsCard(
             )
             Spacer(modifier = Modifier.height(6.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Button(
-                    onClick = {
-                        TtsManager.testSampleSpeech(context, isHindi = true)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .testTag("test_hindi_voice_button")
+            // Grid of test phrases: App Open, WiFi Toggle, Weather, Auto-Reply, Anti-Theft, Memory Recall
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.VolumeUp,
-                        contentDescription = null,
-                        tint = Color.Black,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Test Hindi Voice",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black
-                    )
+                    Button(
+                        onClick = { TtsManager.testPhrases(context, 0) },
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                    ) {
+                        Text("▶ YouTube khul gaya", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = { TtsManager.testPhrases(context, 1) },
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                    ) {
+                        Text("▶ WiFi on kar diya", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
                 }
 
-                Button(
-                    onClick = {
-                        TtsManager.testSampleSpeech(context, isHindi = false)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeonLime),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .testTag("test_english_voice_button")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.VolumeUp,
-                        contentDescription = null,
-                        tint = Color.Black,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Test English Voice",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black
-                    )
+                    Button(
+                        onClick = { TtsManager.testPhrases(context, 2) },
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                    ) {
+                        Text("▶ Weather report", fontSize = 10.sp, color = TextPrimary)
+                    }
+
+                    Button(
+                        onClick = { TtsManager.testPhrases(context, 3) },
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                    ) {
+                        Text("▶ Auto-reply on ho gaya", fontSize = 10.sp, color = TextPrimary)
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = { TtsManager.testPhrases(context, 4) },
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                    ) {
+                        Text("▶ Anti-theft alert", fontSize = 10.sp, color = TextPrimary)
+                    }
+
+                    Button(
+                        onClick = { TtsManager.testPhrases(context, 5) },
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                    ) {
+                        Text("▶ Memory recall", fontSize = 10.sp, color = TextPrimary)
+                    }
                 }
             }
         }

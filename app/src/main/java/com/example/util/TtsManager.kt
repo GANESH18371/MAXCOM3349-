@@ -2,6 +2,7 @@ package com.example.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.media.AudioAttributes
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
@@ -28,6 +29,7 @@ object TtsManager {
     private const val KEY_RATE = "tts_rate"
     private const val KEY_VOICE_ID = "tts_voice_id"
     private const val KEY_LANG_MODE = "tts_lang_mode"
+    private const val KEY_GEMINI_LIVE_VOICE = "gemini_live_voice"
 
     private var tts: TextToSpeech? = null
     private var isInitialized = false
@@ -42,7 +44,7 @@ object TtsManager {
     private val _pitch = MutableStateFlow(1.0f)
     val pitch: StateFlow<Float> = _pitch.asStateFlow()
 
-    private val _speechRate = MutableStateFlow(1.0f)
+    private val _speechRate = MutableStateFlow(1.02f) // Slightly brisk, natural conversational cadence
     val speechRate: StateFlow<Float> = _speechRate.asStateFlow()
 
     private val _selectedVoiceId = MutableStateFlow("auto_natural")
@@ -50,6 +52,9 @@ object TtsManager {
 
     private val _languageMode = MutableStateFlow("auto") // "auto", "hi_IN", "en_IN"
     val languageMode: StateFlow<String> = _languageMode.asStateFlow()
+
+    private val _geminiLiveVoice = MutableStateFlow("Puck")
+    val geminiLiveVoice: StateFlow<String> = _geminiLiveVoice.asStateFlow()
 
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
@@ -69,6 +74,17 @@ object TtsManager {
                 if (status == TextToSpeech.SUCCESS) {
                     isInitialized = true
                     Log.i(TAG, "Central Unified TTS Engine initialized successfully")
+
+                    // Configure natural speech audio attributes
+                    try {
+                        val audioAttributes = AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                        tts?.setAudioAttributes(audioAttributes)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "AudioAttributes setup: ${e.message}")
+                    }
 
                     // Configure default natural language fallback
                     val hiResult = tts?.setLanguage(Locale("hi", "IN"))
@@ -125,9 +141,10 @@ object TtsManager {
     private fun loadPreferences(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _pitch.value = prefs.getFloat(KEY_PITCH, 1.0f).coerceIn(0.7f, 1.5f)
-        _speechRate.value = prefs.getFloat(KEY_RATE, 1.0f).coerceIn(0.7f, 1.5f)
+        _speechRate.value = prefs.getFloat(KEY_RATE, 1.02f).coerceIn(0.7f, 1.5f)
         _selectedVoiceId.value = prefs.getString(KEY_VOICE_ID, "auto_natural") ?: "auto_natural"
         _languageMode.value = prefs.getString(KEY_LANG_MODE, "auto") ?: "auto"
+        _geminiLiveVoice.value = prefs.getString(KEY_GEMINI_LIVE_VOICE, "Puck") ?: "Puck"
     }
 
     private fun savePreferences(context: Context) {
@@ -137,6 +154,7 @@ object TtsManager {
             .putFloat(KEY_RATE, _speechRate.value)
             .putString(KEY_VOICE_ID, _selectedVoiceId.value)
             .putString(KEY_LANG_MODE, _languageMode.value)
+            .putString(KEY_GEMINI_LIVE_VOICE, _geminiLiveVoice.value)
             .apply()
     }
 
@@ -149,6 +167,29 @@ object TtsManager {
         }
     }
 
+    private fun getBestVoiceForLocale(ttsEngine: TextToSpeech, targetLocale: Locale): Voice? {
+        val available = ttsEngine.voices ?: return null
+        val targetLang = targetLocale.language.lowercase(Locale.ROOT)
+        val targetCountry = targetLocale.country.lowercase(Locale.ROOT)
+
+        val candidateVoices = available.filter { v ->
+            v.locale.language.equals(targetLang, ignoreCase = true)
+        }
+
+        if (candidateVoices.isEmpty()) return null
+
+        return candidateVoices.maxByOrNull { v ->
+            var score = 0
+            if (v.quality == Voice.QUALITY_VERY_HIGH) score += 100
+            else if (v.quality == Voice.QUALITY_HIGH) score += 50
+            if (v.locale.country.equals(targetCountry, ignoreCase = true)) score += 40
+            if (!v.isNetworkConnectionRequired) score += 30 // Offline instant latency
+            if (v.name.contains("neural", ignoreCase = true)) score += 60
+            if (v.name.contains("natural", ignoreCase = true)) score += 40
+            score
+        }
+    }
+
     private fun refreshAvailableVoices() {
         val ttsInstance = tts ?: return
         try {
@@ -158,7 +199,7 @@ object TtsManager {
             list.add(
                 VoiceProfileInfo(
                     id = "auto_natural",
-                    displayName = "Auto Natural (Hindi & Indian English Hybrid)",
+                    displayName = "Auto Natural Neural (High Definition Hindi & Indian English)",
                     languageCode = "hi-IN / en-IN",
                     isDefault = true
                 )
@@ -170,7 +211,7 @@ object TtsManager {
                 val country = locale.country.lowercase(Locale.ROOT)
 
                 if (lang == "hi" || (lang == "en" && (country == "in" || country == "gb" || country == "us"))) {
-                    val qualityStr = if (v.quality >= Voice.QUALITY_VERY_HIGH) " (HD)" else ""
+                    val qualityStr = if (v.quality >= Voice.QUALITY_VERY_HIGH) " (HD Neural)" else if (v.quality >= Voice.QUALITY_HIGH) " (HD)" else ""
                     val isHindi = lang == "hi"
                     val label = "${if (isHindi) "Hindi" else "English ($country)"} Voice: ${v.name.substringAfterLast("-")}$qualityStr"
                     list.add(
@@ -188,6 +229,17 @@ object TtsManager {
         }
     }
 
+    private fun sanitizeForSpeech(raw: String): String {
+        return raw
+            .replace(Regex("\\*\\*|\\*|_|#|`"), "")
+            .replace(Regex("https?://\\S+"), "link")
+            .replace("°C", " डिग्री सेल्सियस ")
+            .replace(Regex("(?i)\\bwi-?fi\\b"), "WiFi")
+            .replace(Regex("(?i)\\bdnd\\b"), "Do Not Disturb")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
     /**
      * Centralized unified speak function used across ALL app features:
      * - Weather reports
@@ -197,17 +249,19 @@ object TtsManager {
      * - Call announce & incoming caller speech
      * - Reminders & Alarms
      * - Hardware toggles & App launcher confirmations
+     * - Long term memory recall & storage confirmations
      */
     fun speak(text: String, onDone: (() -> Unit)? = null) {
-        if (text.isBlank()) {
+        val cleanText = sanitizeForSpeech(text)
+        if (cleanText.isBlank()) {
             onDone?.let { mainHandler.post { it.invoke() } }
             return
         }
 
-        DebugLogger.logInfo("TTS Speaking: \"$text\"")
+        DebugLogger.logInfo("TTS Speaking: \"$cleanText\"")
 
         if (!isInitialized || tts == null) {
-            pendingSpeech = text
+            pendingSpeech = cleanText
             pendingCallback = onDone
             return
         }
@@ -220,7 +274,7 @@ object TtsManager {
             ttsEngine.setSpeechRate(_speechRate.value)
 
             // 2. Determine Smart Script / Language Target
-            val hasDevanagari = text.any { it in '\u0900'..'\u097F' }
+            val hasDevanagari = cleanText.any { it in '\u0900'..'\u097F' }
             val mode = _languageMode.value
 
             val targetLocale = when {
@@ -238,12 +292,17 @@ object TtsManager {
                 }
             }
 
-            // 3. Apply custom selected voice if explicitly chosen
+            // 3. Apply custom selected voice or best natural voice
             val selectedVoice = _selectedVoiceId.value
             if (selectedVoice != "auto_natural") {
                 val matchingVoice = ttsEngine.voices?.find { it.name == selectedVoice }
                 if (matchingVoice != null) {
                     ttsEngine.voice = matchingVoice
+                }
+            } else {
+                // Automatically pick the highest quality natural voice available
+                getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
+                    ttsEngine.voice = best
                 }
             }
 
@@ -252,7 +311,7 @@ object TtsManager {
                 callbacks[utteranceId] = onDone
             }
 
-            ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            ttsEngine.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         } catch (e: Exception) {
             Log.e(TAG, "Error speaking text in unified TTS", e)
             _isSpeaking.value = false
@@ -282,11 +341,17 @@ object TtsManager {
         savePreferences(context)
     }
 
+    fun setGeminiLiveVoice(context: Context, voiceName: String) {
+        _geminiLiveVoice.value = voiceName
+        savePreferences(context)
+    }
+
     fun resetToDefaults(context: Context) {
         _pitch.value = 1.0f
-        _speechRate.value = 1.0f
+        _speechRate.value = 1.02f
         _selectedVoiceId.value = "auto_natural"
         _languageMode.value = "auto"
+        _geminiLiveVoice.value = "Puck"
         applyAudioSettings()
         savePreferences(context)
     }
@@ -298,6 +363,19 @@ object TtsManager {
             "Hello! I am Max. Your unified speech engine and voice settings are working perfectly."
         }
         speak(sample)
+    }
+
+    fun testPhrases(context: Context, phraseIndex: Int) {
+        val phrase = when (phraseIndex) {
+            0 -> "YouTube khul gaya"
+            1 -> "WiFi on kar diya"
+            2 -> "आज तापमान 28 डिग्री सेल्सियस है और मौसम साफ है"
+            3 -> "Auto-reply on ho gaya"
+            4 -> "Alert: Phone moving without authorization!"
+            5 -> "Maine aapki permanent memories me save kar liya hai"
+            else -> "Max AI assistant taiyaar hai"
+        }
+        speak(phrase)
     }
 
     fun stop() {

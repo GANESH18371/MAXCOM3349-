@@ -249,7 +249,8 @@ object GeminiLiveManager {
                         val speechConfig = JSONObject().apply {
                             val voiceConfig = JSONObject().apply {
                                 val prebuiltVoiceConfig = JSONObject().apply {
-                                    put("voiceName", "Puck")
+                                    val liveVoiceName = com.example.util.TtsManager.geminiLiveVoice.value
+                                    put("voiceName", liveVoiceName)
                                 }
                                 put("prebuiltVoiceConfig", prebuiltVoiceConfig)
                             }

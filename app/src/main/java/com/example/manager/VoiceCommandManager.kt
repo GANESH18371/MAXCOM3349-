@@ -248,14 +248,17 @@ class VoiceCommandManager(private val context: Context) {
             val isOff = turnOffWords.any { lower.contains(it) }
             val targetEnable = !isOff
 
-            val success = WhatsAppAutoReplyManager.setAutoReplyEnabled(context, targetEnable, announceWithTts = true)
+            val success = WhatsAppAutoReplyManager.setAutoReplyEnabled(context, targetEnable, announceWithTts = false)
             if (targetEnable) {
                 if (success) {
+                    TtsManager.speak("Auto-reply on ho gaya")
                     _voiceState.value = VoiceState.Success("WhatsApp Auto-Reply is ON")
                 } else {
+                    TtsManager.speak("Auto-reply ke liye notification permission zaroori hai")
                     _voiceState.value = VoiceState.Error("Notification Access permission required for Auto-Reply")
                 }
             } else {
+                TtsManager.speak("Auto-reply off ho gaya")
                 _voiceState.value = VoiceState.Success("WhatsApp Auto-Reply is OFF")
             }
             return
@@ -351,7 +354,11 @@ class VoiceCommandManager(private val context: Context) {
         // =========================================================================
         val launched = AppOpenManager.processAndLaunch(context, trimmed)
         if (launched) {
-            _voiceState.value = VoiceState.Success("App opened for \"$trimmed\"")
+            val apps = AppOpenManager.getFreshInstalledApps(context)
+            val matchedApp = AppOpenManager.fuzzyMatchApp(trimmed, apps)
+            val appLabel = matchedApp?.name ?: AppOpenManager.sanitizeCommand(trimmed).replaceFirstChar { it.uppercase() }
+            TtsManager.speak("$appLabel khul gaya")
+            _voiceState.value = VoiceState.Success("App opened: $appLabel")
         } else {
             _voiceState.value = VoiceState.Error("No matching app found for \"$trimmed\"")
         }
@@ -562,42 +569,52 @@ class VoiceCommandManager(private val context: Context) {
             lower.contains("torch") || lower.contains("flashlight") || lower.contains("टॉर्च") || lower.contains("फ्लैशलाइट") || lower.contains("flash") || lower.contains("लाइट") -> {
                 HardwareToggleManager.toggleTorch(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.TORCH, if (targetState == false) "OFF" else "ON", targetState)
+                TtsManager.speak(if (targetState == false) "Torch band kar di" else "Torch on kar di")
             }
             // WiFi
             lower.contains("wifi") || lower.contains("wi-fi") || lower.contains("वाई-फाई") || lower.contains("वाईफाई") || lower.contains("wlan") -> {
+                val willBeOn = targetState ?: !HardwareToggleManager.isWifiEnabled(context)
                 HardwareToggleManager.toggleWifi(context)
-                AppContextManager.recordHardwareToggle(HardwareFeature.WIFI, if (targetState == false) "OFF" else "ON", targetState)
+                AppContextManager.recordHardwareToggle(HardwareFeature.WIFI, if (willBeOn) "ON" else "OFF", willBeOn)
+                TtsManager.speak(if (willBeOn) "WiFi on kar diya" else "WiFi band kar diya")
             }
             // Bluetooth
             lower.contains("bluetooth") || lower.contains("ब्लूटूथ") || lower.contains("bt") -> {
+                val willBeOn = targetState ?: !HardwareToggleManager.isBluetoothEnabled(context)
                 HardwareToggleManager.toggleBluetooth(context)
-                AppContextManager.recordHardwareToggle(HardwareFeature.BLUETOOTH, if (targetState == false) "OFF" else "ON", targetState)
+                AppContextManager.recordHardwareToggle(HardwareFeature.BLUETOOTH, if (willBeOn) "ON" else "OFF", willBeOn)
+                TtsManager.speak(if (willBeOn) "Bluetooth on kar diya" else "Bluetooth band kar diya")
             }
             // Mobile Data
             lower.contains("data") || lower.contains("डेटा") || lower.contains("cellular") || lower.contains("net") -> {
                 HardwareToggleManager.toggleMobileData(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.MOBILE_DATA, if (targetState == false) "OFF" else "ON", targetState)
+                TtsManager.speak("Mobile Data settings khol di hai")
             }
             // Hotspot
             lower.contains("hotspot") || lower.contains("हॉटस्पॉट") || lower.contains("tethering") -> {
                 HardwareToggleManager.toggleHotspot(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.HOTSPOT, if (targetState == false) "OFF" else "ON", targetState)
+                TtsManager.speak("Hotspot settings khol di hai")
             }
             // Brightness
             lower.contains("brightness") || lower.contains("screen light") || lower.contains("chamak") || lower.contains("ब्राइटनेस") || lower.contains("रोशनी") || lower.contains("चमक") -> {
                 val parsed = HardwareToggleManager.parseVolumeCommand(lower) // extracts percentage if any
                 HardwareToggleManager.toggleBrightness(context, parsed.explicitPercent)
                 AppContextManager.recordHardwareToggle(HardwareFeature.BRIGHTNESS, if (parsed.explicitPercent != null) "${parsed.explicitPercent}%" else "Toggled")
+                TtsManager.speak("Brightness adjust kar di hai")
             }
             // DND
             lower.contains("dnd") || lower.contains("disturb") || lower.contains("डिस्टर्ब") -> {
                 HardwareToggleManager.toggleDnd(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.DND, if (targetState == false) "OFF" else "ON", targetState)
+                TtsManager.speak(if (targetState == false) "Do Not Disturb band kar diya" else "Do Not Disturb on kar diya")
             }
             // Airplane Mode
             lower.contains("airplane") || lower.contains("flight") || lower.contains("हवाई मोड") || lower.contains("aeroplane") -> {
                 HardwareToggleManager.toggleAirplaneMode(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.AIRPLANE_MODE, if (targetState == false) "OFF" else "ON", targetState)
+                TtsManager.speak("Airplane Mode settings khol di hai")
             }
         }
     }
