@@ -241,6 +241,16 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         // =========================================================================
+        // STEP 0.4: GEMINI LIVE VOICE TRIGGER ("live mode on karo", "gemini live")
+        // =========================================================================
+        if (lower.contains("live mode") || lower.contains("gemini live") || lower.contains("लाइव मोड") || lower.contains("live conversation") || lower.contains("start live")) {
+            TtsManager.speak("Gemini Live start ho raha hai")
+            com.example.live.GeminiLiveManager.startLiveSession(context)
+            _voiceState.value = VoiceState.Success("Gemini Live Started")
+            return
+        }
+
+        // =========================================================================
         // STEP 0.5: WHATSAPP AUTO-REPLY VOICE CONTROL ("auto-reply on/off karo")
         // =========================================================================
         if (isAutoReplyCommand(lower)) {

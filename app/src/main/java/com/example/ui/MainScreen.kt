@@ -81,7 +81,6 @@ import com.example.ui.components.DefaultAssistantCard
 import com.example.ui.components.GeminiApiKeyCard
 import com.example.ui.components.GeminiLiveCard
 import com.example.ui.components.HardwareToggleGrid
-import com.example.ui.components.MicButton
 import com.example.ui.components.PermanentMemoryCard
 import com.example.ui.components.RemindersCard
 import com.example.ui.components.VoiceSettingsCard
@@ -324,8 +323,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     // TAB 1: ASSISTANT & CONVERSATION MATRIX
                     // ==========================================
                     JarvisSectionHeader(
-                        title = "NEURAL CONVERSATION & GEMINI LIVE",
-                        subtitle = "Real-time audio-to-audio streaming with model gemini-3.8-live"
+                        title = "CONVERSATION & LIVE TRANSCRIPTS",
+                        subtitle = "Real-time stream logs & context. Voice activation is engaged via Dashboard Arc-Reactor."
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -338,7 +337,6 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     // Voice Command Card with Quick Chips & Context Aware State
                     VoiceControlCard(
                         voiceState = voiceState,
-                        onMicClick = triggerVoiceListening,
                         onQuickCommand = { command ->
                             voiceManager.processCommand(command)
                         }
@@ -557,7 +555,6 @@ private fun AccessibilitySetupCard(
 @Composable
 private fun VoiceControlCard(
     voiceState: VoiceState,
-    onMicClick: () -> Unit,
     onQuickCommand: (String) -> Unit
 ) {
     val contextState by AppContextManager.contextState.collectAsState()
@@ -575,10 +572,89 @@ private fun VoiceControlCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            MicButton(
-                voiceState = voiceState,
-                onMicClick = onMicClick
-            )
+            // Voice Engine Status & Live Transcript Box (Activation centralized at Arc-Reactor)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(DarkSurfaceVariant, RoundedCornerShape(12.dp))
+                    .border(1.dp, DarkOutline, RoundedCornerShape(12.dp))
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(
+                                        when (voiceState) {
+                                            is VoiceState.Listening -> JarvisNeonGreen
+                                            is VoiceState.Processing -> JarvisNeonAmber
+                                            is VoiceState.Success -> JarvisCyan
+                                            is VoiceState.Error -> JarvisNeonRed
+                                            is VoiceState.Idle -> JarvisTextDim
+                                        },
+                                        CircleShape
+                                    )
+                            )
+                            Text(
+                                text = when (voiceState) {
+                                    is VoiceState.Listening -> "VOICE ENGINE: LISTENING..."
+                                    is VoiceState.Processing -> "VOICE ENGINE: ANALYZING..."
+                                    is VoiceState.Success -> "STATUS: COMPLETED"
+                                    is VoiceState.Error -> "STATUS: ERROR"
+                                    is VoiceState.Idle -> "VOICE ENGINE: STANDBY"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = when (voiceState) {
+                                    is VoiceState.Listening -> JarvisNeonGreen
+                                    is VoiceState.Processing -> JarvisNeonAmber
+                                    is VoiceState.Success -> JarvisCyan
+                                    is VoiceState.Error -> JarvisNeonRed
+                                    is VoiceState.Idle -> JarvisTextSecondary
+                                }
+                            )
+                        }
+
+                        Text(
+                            text = "OFFLINE ROUTER",
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = JarvisTextDim
+                        )
+                    }
+
+                    // Transcript Text Box
+                    val transcript = when (voiceState) {
+                        is VoiceState.Listening -> "Listening... Speak in Hindi or English (e.g. 'YouTube kholo', 'WiFi on karo')."
+                        is VoiceState.Processing -> "Processing command... Matching installed apps and hardware toggles."
+                        is VoiceState.Success -> voiceState.message
+                        is VoiceState.Error -> voiceState.message
+                        is VoiceState.Idle -> "Standby. Engage voice via Dashboard Neural Arc-Reactor (Tap: Local Commands • Hold: Gemini Live)."
+                    }
+
+                    Text(
+                        text = transcript,
+                        fontSize = 12.sp,
+                        color = when (voiceState) {
+                            is VoiceState.Success -> JarvisCyan
+                            is VoiceState.Error -> JarvisNeonRed
+                            is VoiceState.Listening -> JarvisTextPrimary
+                            else -> JarvisTextSecondary
+                        },
+                        lineHeight = 16.sp
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 

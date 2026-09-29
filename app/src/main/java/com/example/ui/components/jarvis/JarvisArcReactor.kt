@@ -1,5 +1,11 @@
 package com.example.ui.components.jarvis
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -8,9 +14,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +32,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.HeadsetMic
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.Icon
@@ -31,6 +42,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,77 +56,153 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.live.GeminiLiveManager
 import com.example.live.LiveConnectionState
+import com.example.manager.VoiceCommandManager
 import com.example.manager.VoiceState
 import com.example.ui.theme.JarvisCard
 import com.example.ui.theme.JarvisCardBorder
 import com.example.ui.theme.JarvisCyan
-import com.example.ui.theme.JarvisNeonGreen
 import com.example.ui.theme.JarvisNeonAmber
+import com.example.ui.theme.JarvisNeonGreen
 import com.example.ui.theme.JarvisSurface
 import com.example.ui.theme.JarvisTeal
 import com.example.ui.theme.JarvisTextDim
 import com.example.ui.theme.JarvisTextPrimary
 import com.example.ui.theme.JarvisTextSecondary
+import com.example.util.SecureApiKeyManager
 import com.example.util.TtsManager
 import kotlin.math.cos
 import kotlin.math.sin
 
+enum class AssistantMode {
+    LOCAL_OFFLINE,
+    GEMINI_LIVE
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun JarvisArcReactor(
     voiceState: VoiceState,
     onTriggerListening: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+
     val liveState by GeminiLiveManager.connectionState.collectAsState()
     val isTtsSpeaking by TtsManager.isSpeaking.collectAsState()
 
-    val isListening = voiceState is VoiceState.Listening || liveState == LiveConnectionState.LISTENING
+    var activeMode by remember { mutableStateOf(AssistantMode.LOCAL_OFFLINE) }
+
+    val isLiveSessionActive = liveState == LiveConnectionState.LISTENING ||
+            liveState == LiveConnectionState.SPEAKING ||
+            liveState == LiveConnectionState.CONNECTING
+
+    val isLocalListening = voiceState is VoiceState.Listening
+    val isLocalProcessing = voiceState is VoiceState.Processing
     val isSpeaking = isTtsSpeaking || liveState == LiveConnectionState.SPEAKING
-    val isProcessing = voiceState is VoiceState.Processing || liveState == LiveConnectionState.CONNECTING
+
+    val isAnyListening = isLocalListening || liveState == LiveConnectionState.LISTENING
+    val isAnyProcessing = isLocalProcessing || liveState == LiveConnectionState.CONNECTING
+
+    // Mic permission launcher for Gemini Live mode
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            GeminiLiveManager.startLiveSession(context)
+        } else {
+            Toast.makeText(context, "Microphone permission required for Gemini Live", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Function to trigger Gemini Live
+    val engageLiveMode = {
+        if (isLiveSessionActive) {
+            GeminiLiveManager.stopLiveSession()
+            Toast.makeText(context, "Gemini Live Stream Ended", Toast.LENGTH_SHORT).show()
+        } else {
+            // Check API key configuration first
+            if (!SecureApiKeyManager.isKeyConfigured(context)) {
+                Toast.makeText(context, "Please set Gemini API Key in Settings first!", Toast.LENGTH_LONG).show()
+            } else {
+                val hasMic = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+                if (hasMic) {
+                    Toast.makeText(context, "Engaging Gemini Live Audio...", Toast.LENGTH_SHORT).show()
+                    GeminiLiveManager.startLiveSession(context)
+                } else {
+                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
+        }
+    }
+
+    // Single unified reactor action handler
+    val handleArcReactorTap = {
+        if (isLiveSessionActive) {
+            // If Gemini Live is active, tap stops it
+            GeminiLiveManager.stopLiveSession()
+        } else if (isTtsSpeaking) {
+            // If speaking, tap stops speech
+            TtsManager.stop()
+        } else {
+            // Normal default tap -> trigger offline local command router
+            if (activeMode == AssistantMode.GEMINI_LIVE) {
+                engageLiveMode()
+            } else {
+                onTriggerListening()
+            }
+        }
+    }
+
+    val handleArcReactorLongPress = {
+        // Long press ALWAYS toggles Gemini Live mode
+        engageLiveMode()
+    }
 
     // Animations
     val infiniteTransition = rememberInfiniteTransition(label = "reactorAnimation")
 
-    // Outer slow clockwise rotation
     val outerRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (isProcessing) 3000 else if (isListening) 5000 else 12000,
+                durationMillis = if (isAnyProcessing) 2500 else if (isAnyListening) 4000 else 10000,
                 easing = LinearEasing
             )
         ),
         label = "outerRotation"
     )
 
-    // Inner fast counter-clockwise rotation
     val innerRotation by infiniteTransition.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (isProcessing) 2000 else if (isListening) 4000 else 8000,
+                durationMillis = if (isAnyProcessing) 1800 else if (isAnyListening) 3500 else 7500,
                 easing = LinearEasing
             )
         ),
         label = "innerRotation"
     )
 
-    // Breathing core pulse
     val corePulse by infiniteTransition.animateFloat(
         initialValue = 0.88f,
-        targetValue = 1.12f,
+        targetValue = 1.14f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (isListening) 400 else if (isSpeaking) 600 else 1500,
+                durationMillis = if (isAnyListening) 400 else if (isSpeaking) 550 else 1400,
                 easing = FastOutSlowInEasing
             ),
             repeatMode = RepeatMode.Reverse
@@ -120,25 +210,36 @@ fun JarvisArcReactor(
         label = "corePulse"
     )
 
-    val activeColor = when {
-        isListening -> JarvisNeonGreen
+    // Dynamic Color Palette depending on State & Mode
+    val targetColor = when {
+        isLiveSessionActive -> JarvisNeonGreen
+        isLocalListening -> JarvisNeonGreen
         isSpeaking -> JarvisCyan
-        isProcessing -> JarvisNeonAmber
+        isAnyProcessing -> JarvisNeonAmber
+        activeMode == AssistantMode.GEMINI_LIVE -> Color(0xFFB388FF) // Purple glow for Live standby
         else -> JarvisCyan
     }
 
+    val activeColor by animateColorAsState(targetValue = targetColor, label = "activeColor")
+
     val stateTitle = when {
-        isListening -> "AUDIO MATRIX ACTIVE"
-        isSpeaking -> "NEURAL TRANSMISSION"
-        isProcessing -> "ANALYZING COMMAND"
-        else -> "STANDBY // TAP TO ENGAGE"
+        liveState == LiveConnectionState.CONNECTING -> "CONNECTING GEMINI LIVE..."
+        liveState == LiveConnectionState.LISTENING -> "GEMINI LIVE LISTENING"
+        liveState == LiveConnectionState.SPEAKING -> "GEMINI LIVE RESPONDING"
+        isLocalListening -> "LOCAL ENGINE LISTENING..."
+        isLocalProcessing -> "ANALYZING COMMAND..."
+        isSpeaking -> "MAX EXECUTING // TAP TO STOP"
+        activeMode == AssistantMode.GEMINI_LIVE -> "GEMINI LIVE // TAP OR HOLD TO ENGAGE"
+        else -> "LOCAL ENGINE // TAP TO ENGAGE"
     }
 
     val stateSubtitle = when {
-        isListening -> "Streaming voice input • Speak now..."
-        isSpeaking -> "Max is currently speaking..."
-        isProcessing -> "Routing command to local engine..."
-        else -> "Jarvis core ready for voice or touch commands"
+        isLiveSessionActive -> "Real-time streaming conversation • Tap to disconnect"
+        isLocalListening -> "Say 'YouTube kholo', 'WiFi on', 'Weather', or 'Live mode'"
+        isLocalProcessing -> "Routing command to local offline subsystem..."
+        isSpeaking -> "Executing response • Tap reactor to stop speech"
+        activeMode == AssistantMode.GEMINI_LIVE -> "Continuous natural AI dialogue • Long-press anytime"
+        else -> "Tap for Offline Commands (100% fast) • Hold for Gemini Live"
     }
 
     Box(
@@ -161,21 +262,33 @@ fun JarvisArcReactor(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Header Tag
+            // Header: Card Title & Unified Mode Selector Switch
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "NEURAL ARC-REACTOR",
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = JarvisTextSecondary,
-                    letterSpacing = 1.5.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = null,
+                        tint = activeColor,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "NEURAL ARC-REACTOR",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = JarvisTextPrimary,
+                        letterSpacing = 1.2.sp
+                    )
+                }
 
+                // Status Badge
                 Box(
                     modifier = Modifier
                         .background(activeColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
@@ -183,24 +296,121 @@ fun JarvisArcReactor(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = if (isListening) "LISTENING" else if (isSpeaking) "SPEAKING" else "ONLINE",
+                        text = if (isLiveSessionActive) "GEMINI LIVE" else if (isLocalListening) "LOCAL LISTENING" else if (isSpeaking) "SPEAKING" else "READY",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 9.sp,
+                        fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
                         color = activeColor
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Central Interactive Arc Reactor Canvas
+            // Unified Dual-Mode Switcher Pills (Local Offline vs Gemini Live)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(JarvisSurface, RoundedCornerShape(10.dp))
+                    .border(1.dp, JarvisCardBorder, RoundedCornerShape(10.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Pill 1: Offline Local Mode (Default)
+                val isLocalSelected = activeMode == AssistantMode.LOCAL_OFFLINE && !isLiveSessionActive
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isLocalSelected) JarvisCyan.copy(alpha = 0.2f) else Color.Transparent)
+                        .border(
+                            1.dp,
+                            if (isLocalSelected) JarvisCyan.copy(alpha = 0.7f) else Color.Transparent,
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            activeMode = AssistantMode.LOCAL_OFFLINE
+                            if (isLiveSessionActive) {
+                                GeminiLiveManager.stopLiveSession()
+                            }
+                        }
+                        .padding(vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = null,
+                            tint = if (isLocalSelected) JarvisCyan else JarvisTextDim,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = "LOCAL OFFLINE (Tap)",
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = if (isLocalSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isLocalSelected) JarvisCyan else JarvisTextSecondary
+                        )
+                    }
+                }
+
+                // Pill 2: Gemini Live Mode
+                val isLiveSelected = activeMode == AssistantMode.GEMINI_LIVE || isLiveSessionActive
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isLiveSelected) JarvisNeonGreen.copy(alpha = 0.2f) else Color.Transparent)
+                        .border(
+                            1.dp,
+                            if (isLiveSelected) JarvisNeonGreen.copy(alpha = 0.7f) else Color.Transparent,
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            activeMode = AssistantMode.GEMINI_LIVE
+                            if (!isLiveSessionActive) {
+                                engageLiveMode()
+                            }
+                        }
+                        .padding(vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HeadsetMic,
+                            contentDescription = null,
+                            tint = if (isLiveSelected) JarvisNeonGreen else JarvisTextDim,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = "GEMINI LIVE (Hold)",
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = if (isLiveSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isLiveSelected) JarvisNeonGreen else JarvisTextSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Central Interactive Arc Reactor Canvas (Handles Both Tap and Long-Press)
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(190.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onTriggerListening)
+                    .combinedClickable(
+                        onClick = handleArcReactorTap,
+                        onLongClick = handleArcReactorLongPress
+                    )
                     .testTag("arc_reactor_button")
             ) {
                 // Background radial glow effect
@@ -212,7 +422,7 @@ fun JarvisArcReactor(
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                activeColor.copy(alpha = if (isListening || isSpeaking) 0.35f else 0.12f),
+                                activeColor.copy(alpha = if (isAnyListening || isSpeaking || isLiveSessionActive) 0.38f else 0.12f),
                                 Color.Transparent
                             ),
                             center = center,
@@ -256,7 +466,7 @@ fun JarvisArcReactor(
                         val endY = center.y + (tickRadius + 2.dp.toPx()) * sin(angleRad).toFloat()
 
                         drawLine(
-                            color = JarvisCyan.copy(alpha = 0.5f),
+                            color = activeColor.copy(alpha = 0.5f),
                             start = Offset(startX, startY),
                             end = Offset(endX, endY),
                             strokeWidth = 1.5.dp.toPx()
@@ -265,7 +475,7 @@ fun JarvisArcReactor(
 
                     // Inner Stator Circle
                     drawCircle(
-                        color = JarvisCyan.copy(alpha = 0.35f),
+                        color = activeColor.copy(alpha = 0.35f),
                         radius = radius - 38.dp.toPx(),
                         style = Stroke(width = 1.5.dp.toPx())
                     )
@@ -296,7 +506,7 @@ fun JarvisArcReactor(
                         .background(
                             Brush.radialGradient(
                                 listOf(
-                                    activeColor.copy(alpha = 0.3f),
+                                    activeColor.copy(alpha = 0.35f),
                                     JarvisSurface
                                 )
                             ),
@@ -304,8 +514,14 @@ fun JarvisArcReactor(
                         )
                         .border(1.5.dp, activeColor, CircleShape)
                 ) {
+                    val coreIcon = when {
+                        isSpeaking -> Icons.Default.RecordVoiceOver
+                        isLiveSessionActive -> Icons.Default.GraphicEq
+                        isLocalListening -> Icons.Default.Mic
+                        else -> Icons.Default.Mic
+                    }
                     Icon(
-                        imageVector = if (isSpeaking) Icons.Default.RecordVoiceOver else Icons.Default.Mic,
+                        imageVector = coreIcon,
                         contentDescription = "Voice Assistant Core",
                         tint = activeColor,
                         modifier = Modifier.size(28.dp)
@@ -315,18 +531,19 @@ fun JarvisArcReactor(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // State Display
+            // State Title Display
             Text(
                 text = stateTitle,
                 fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = activeColor,
                 letterSpacing = 1.sp
             )
 
-            Spacer(modifier = Modifier.height(3.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
+            // Subtitle & Operational Guidance
             Text(
                 text = stateSubtitle,
                 fontSize = 11.sp,

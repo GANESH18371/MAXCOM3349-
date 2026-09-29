@@ -232,79 +232,97 @@ fun GeminiLiveCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Action Button Row
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                // Main Start/Stop Streaming Button
-                Button(
-                    onClick = {
-                        if (isSessionActive) {
-                            GeminiLiveManager.stopLiveSession()
-                        } else {
-                            val hasMic = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasMic) {
-                                GeminiLiveManager.startLiveSession(context)
-                            } else {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isSessionActive) NeonRed else CyberCyan
-                    ),
-                    shape = RoundedCornerShape(10.dp),
+            // Live Streaming Status & Controls
+            if (!isSessionActive) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
-                        .weight(1.3f)
-                        .height(44.dp)
-                        .testTag("gemini_live_toggle_button")
+                        .fillMaxWidth()
+                        .background(DarkSurfaceVariant, RoundedCornerShape(10.dp))
+                        .border(1.dp, DarkOutline, RoundedCornerShape(10.dp))
+                        .padding(12.dp)
                 ) {
                     Icon(
-                        imageVector = if (isSessionActive) Icons.Default.Stop else Icons.Default.HeadsetMic,
+                        imageVector = Icons.Default.HeadsetMic,
                         contentDescription = null,
-                        tint = Color.Black,
-                        modifier = Modifier.size(18.dp)
+                        tint = CyberCyan,
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isSessionActive) "End Live Stream" else "Start Live Audio",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black
-                    )
+                    Column {
+                        Text(
+                            text = "LIVE AUDIO STATUS: STANDBY",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Activated via Dashboard Arc-Reactor: Long-press or toggle Gemini Live mode on the Dashboard to stream real-time conversation.",
+                            fontSize = 10.sp,
+                            color = TextSecondary,
+                            lineHeight = 14.sp
+                        )
+                    }
                 }
-
-                // Barge-In Interruption Button (Simulate speech interrupt)
-                if (state == LiveConnectionState.SPEAKING) {
+            } else {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Button(
                         onClick = {
-                            GeminiLiveManager.triggerBargeIn()
-                            Toast.makeText(context, "Interrupted Max! Listening to you...", Toast.LENGTH_SHORT).show()
+                            GeminiLiveManager.stopLiveSession()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = NeonAmber),
+                        colors = ButtonDefaults.buttonColors(containerColor = NeonRed),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .testTag("barge_in_button")
+                            .weight(1.2f)
+                            .height(40.dp)
+                            .testTag("gemini_live_toggle_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Hearing,
+                            imageVector = Icons.Default.Stop,
                             contentDescription = null,
                             tint = Color.Black,
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Interrupt / Speak",
-                            fontSize = 10.sp,
+                            text = "End Live Stream",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.Black
                         )
+                    }
+
+                    if (state == LiveConnectionState.SPEAKING) {
+                        Button(
+                            onClick = {
+                                GeminiLiveManager.triggerBargeIn()
+                                Toast.makeText(context, "Interrupted Max! Listening to you...", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = NeonAmber),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                                .testTag("barge_in_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Hearing,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Interrupt",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black
+                            )
+                        }
                     }
                 }
             }
@@ -341,7 +359,7 @@ fun GeminiLiveCard(
                             text = if (isSessionActive)
                                 "Streaming audio to Gemini Live... Speak in Hindi or English."
                             else
-                                "Tap 'Start Live Audio' to begin instant real-time conversation.",
+                                "Hold Dashboard Arc-Reactor or switch to Live mode to begin real-time dialogue.",
                             fontSize = 11.sp,
                             color = TextSecondary
                         )
