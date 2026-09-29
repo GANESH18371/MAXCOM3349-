@@ -103,6 +103,7 @@ import com.example.ui.theme.JarvisCardBorder
 import com.example.ui.theme.JarvisCyan
 import com.example.ui.theme.JarvisNeonAmber
 import com.example.ui.theme.JarvisNeonGreen
+import com.example.ui.theme.JarvisNeonRed
 import com.example.ui.theme.JarvisSurface
 import com.example.ui.theme.JarvisTextDim
 import com.example.ui.theme.JarvisTextPrimary
