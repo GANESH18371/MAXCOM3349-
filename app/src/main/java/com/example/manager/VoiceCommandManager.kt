@@ -15,8 +15,10 @@ import com.example.util.DebugLogger
 import com.example.util.ReminderParser
 import com.example.util.ReminderVoiceAction
 import com.example.util.TtsManager
+import com.example.service.MaxAccessibilityService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -76,6 +78,10 @@ class VoiceCommandManager(private val context: Context) {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                // Support multi-sentence continuous thought flow without aggressive cut-offs
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 2500L)
                 // Support both Hindi and English
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "hi-IN")
@@ -241,16 +247,6 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         // =========================================================================
-        // STEP 0.4: GEMINI LIVE VOICE TRIGGER ("live mode on karo", "gemini live")
-        // =========================================================================
-        if (lower.contains("live mode") || lower.contains("gemini live") || lower.contains("लाइव मोड") || lower.contains("live conversation") || lower.contains("start live")) {
-            TtsManager.speak("Gemini Live start ho raha hai")
-            com.example.live.GeminiLiveManager.startLiveSession(context)
-            _voiceState.value = VoiceState.Success("Gemini Live Started")
-            return
-        }
-
-        // =========================================================================
         // STEP 0.5: WHATSAPP AUTO-REPLY VOICE CONTROL ("auto-reply on/off karo")
         // =========================================================================
         if (isAutoReplyCommand(lower)) {
@@ -351,6 +347,43 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         // =========================================================================
+        // STEP 0.96: GENERIC MULTI-APP MESSAGING & AUTO-SAVE ("Telegram par 9876543210 ko message karo", "Instagram par Ravi ko message bhejo", etc.)
+        // =========================================================================
+        if (GenericMessagingManager.isMessagingCommand(lower)) {
+            _voiceState.value = VoiceState.Processing("मैसेज तैयार किया जा रहा है...")
+            GenericMessagingManager.executeMessagingFlow(context, trimmed) { success, msg ->
+                if (success) {
+                    _voiceState.value = VoiceState.Success(msg)
+                } else {
+                    _voiceState.value = VoiceState.Error(msg)
+                }
+            }
+            return
+        }
+
+        // =========================================================================
+        // STEP 0.97: GENERIC APP-CONTROL FOR MEDIA COMMANDS ("agla wala chalao", "pause karo", "Arijit Singh chalao", etc.)
+        // =========================================================================
+        if (GenericAppControlManager.isMediaCommand(lower)) {
+            _voiceState.value = VoiceState.Processing("Media command execute ho raha hai...")
+            GenericAppControlManager.executeMediaFlow(context, trimmed) { success, msg ->
+                if (success) {
+                    _voiceState.value = VoiceState.Success(msg)
+                } else {
+                    _voiceState.value = VoiceState.Error(msg)
+                }
+            }
+            return
+        }
+
+        // =========================================================================
+        // STEP 0.98: COMPOUND LOCAL MULTI-INTENT ("torch on karo aur wifi band karo")
+        // =========================================================================
+        if (tryExecuteCompoundLocalCommand(trimmed)) {
+            return
+        }
+
+        // =========================================================================
         // STEP 1: HARDWARE TOGGLE COMMAND (VOLUME / TORCH / WIFI / etc.) [UNTOUCHED]
         // =========================================================================
         if (isHardwareCommand(lower)) {
@@ -360,17 +393,182 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         // =========================================================================
-        // STEP 2: APP OPEN COMMAND (Devanagari / Phonetic / Fuzzy Match) [UNTOUCHED]
+        // STEP 2: APP OPEN COMMAND (Devanagari / Phonetic / Fuzzy Match)
         // =========================================================================
         val launched = AppOpenManager.processAndLaunch(context, trimmed)
         if (launched) {
             val apps = AppOpenManager.getFreshInstalledApps(context)
             val matchedApp = AppOpenManager.fuzzyMatchApp(trimmed, apps)
             val appLabel = matchedApp?.name ?: AppOpenManager.sanitizeCommand(trimmed).replaceFirstChar { it.uppercase() }
-            TtsManager.speak("$appLabel khul gaya")
+            if (matchedApp != null) {
+                AppContextManager.recordAppOpen(matchedApp)
+            }
+            val replyMsg = "$appLabel khul gaya"
+            AppContextManager.recordConversationExchange(trimmed, replyMsg)
+            TtsManager.speak(replyMsg)
             _voiceState.value = VoiceState.Success("App opened: $appLabel")
-        } else {
-            _voiceState.value = VoiceState.Error("No matching app found for \"$trimmed\"")
+            return
+        }
+
+        // =========================================================================
+        // STEP 3: DEEP HUMAN-LIKE COMPREHENSION (Gemini 2.5 Flash Model)
+        // Understands casual, colloquial, indirect phrasing, idioms, and multi-sentence thought flows.
+        // Executes multiple intents sequentially and speaks natural, warm Hindi/Hinglish.
+        // =========================================================================
+        _voiceState.value = VoiceState.Processing("Samajh raha hoon...")
+        scope.launch {
+            var isHandled = false
+            // Natural filler only if network/processing takes > 1.15 seconds
+            val fillerJob = launch {
+                delay(1150L)
+                if (!isHandled && _voiceState.value is VoiceState.Processing) {
+                    val filler = listOf(
+                        "Hmm, dekhta hoon...",
+                        "Hmm, samajh raha hoon...",
+                        "Ek second, rukiye..."
+                    ).random()
+                    TtsManager.speak(filler)
+                }
+            }
+
+            try {
+                val contextSummary = AppContextManager.getRecentContextSummary()
+                val installedApps = AppOpenManager.getFreshInstalledApps(context)
+                val appNames = installedApps.map { it.name }.take(25)
+
+                val result = com.example.service.GeminiReplyService.deepUnderstandCommand(
+                    userQuery = trimmed,
+                    contextSummary = contextSummary,
+                    knownApps = appNames
+                )
+
+                isHandled = true
+                fillerJob.cancel()
+
+                DebugLogger.logInfo("Deep Comprehension: intent='${result.understoodIntent}', actionsCount=${result.actions.size}")
+
+                // Execute all recognized actions in sequential order
+                for ((index, action) in result.actions.withIndex()) {
+                    when (action.type.lowercase()) {
+                        "open_app" -> {
+                            val matchedApp = AppOpenManager.fuzzyMatchApp(action.target, installedApps)
+                                ?: installedApps.find { it.name.equals(action.target, ignoreCase = true) || it.name.contains(action.target, ignoreCase = true) }
+                            if (matchedApp != null) {
+                                val didLaunch = AppOpenManager.launchApp(context, matchedApp)
+                                if (didLaunch) {
+                                    AppContextManager.recordAppOpen(matchedApp)
+                                }
+                            }
+                        }
+                        "toggle" -> {
+                            executeDeepComprehensionToggle(action.target)
+                        }
+                    }
+                    if (index < result.actions.size - 1) {
+                        delay(350L) // Smooth gap between multiple actions
+                    }
+                }
+
+                // Deliver warm, friendly response via TTS
+                val replyText = if (result.replyText.isNotBlank()) result.replyText else "Main aapke liye kaam kar raha hoon."
+                AppContextManager.recordConversationExchange(trimmed, replyText)
+                TtsManager.speak(replyText)
+                _voiceState.value = VoiceState.Success(replyText)
+
+            } catch (e: Exception) {
+                isHandled = true
+                fillerJob.cancel()
+                val err = "Kshama karein, main theek se samajh nahi saka. Ek baar dobara batayiye na!"
+                AppContextManager.recordConversationExchange(trimmed, err)
+                _voiceState.value = VoiceState.Error(err)
+                TtsManager.speak(err)
+            }
+        }
+    }
+
+    private fun tryExecuteCompoundLocalCommand(raw: String): Boolean {
+        val lower = raw.lowercase()
+        val regex = Regex(" aur | and | phir | tatha ")
+        if (!regex.containsMatchIn(lower)) return false
+
+        val parts = raw.split(regex, limit = 2)
+        if (parts.size != 2) return false
+
+        val part1 = parts[0].trim()
+        val part2 = parts[1].trim()
+
+        val isHw1 = isHardwareCommand(part1.lowercase())
+        val isHw2 = isHardwareCommand(part2.lowercase())
+
+        if (isHw1 && isHw2) {
+            handleHardwareVoiceCommand(part1.lowercase(), part1)
+            scope.launch {
+                delay(300L)
+                handleHardwareVoiceCommand(part2.lowercase(), part2)
+                val msg = "Dono hardware settings adjust ho gayi"
+                AppContextManager.recordConversationExchange(raw, msg)
+                TtsManager.speak(msg)
+                _voiceState.value = VoiceState.Success(msg)
+            }
+            return true
+        }
+
+        val apps = AppOpenManager.getFreshInstalledApps(context)
+        val app1 = AppOpenManager.fuzzyMatchApp(part1, apps)
+        if (app1 != null && isHw2) {
+            val launched = AppOpenManager.launchApp(context, app1)
+            if (launched) {
+                AppContextManager.recordAppOpen(app1)
+            }
+            scope.launch {
+                delay(300L)
+                handleHardwareVoiceCommand(part2.lowercase(), part2)
+                val msg = "${app1.name} khol diya aur hardware setting adjust kar di"
+                AppContextManager.recordConversationExchange(raw, msg)
+                TtsManager.speak(msg)
+                _voiceState.value = VoiceState.Success(msg)
+            }
+            return true
+        }
+
+        return false
+    }
+
+    private fun executeDeepComprehensionToggle(target: String) {
+        val lower = target.lowercase()
+        when {
+            lower.contains("torch_on") -> executeResolvedHardwareToggle(HardwareFeature.TORCH, true)
+            lower.contains("torch_off") -> executeResolvedHardwareToggle(HardwareFeature.TORCH, false)
+            lower.contains("wifi_on") -> executeResolvedHardwareToggle(HardwareFeature.WIFI, true)
+            lower.contains("wifi_off") -> executeResolvedHardwareToggle(HardwareFeature.WIFI, false)
+            lower.contains("bluetooth_on") -> executeResolvedHardwareToggle(HardwareFeature.BLUETOOTH, true)
+            lower.contains("bluetooth_off") -> executeResolvedHardwareToggle(HardwareFeature.BLUETOOTH, false)
+            lower.contains("volume_up") -> {
+                HardwareToggleManager.adjustVolume(context, VolumeAction.UP)
+                AppContextManager.recordHardwareToggle(HardwareFeature.VOLUME, "Volume UP", null)
+            }
+            lower.contains("volume_down") -> {
+                HardwareToggleManager.adjustVolume(context, VolumeAction.DOWN)
+                AppContextManager.recordHardwareToggle(HardwareFeature.VOLUME, "Volume DOWN", null)
+            }
+            lower.contains("volume_mute") -> {
+                HardwareToggleManager.adjustVolume(context, VolumeAction.MUTE)
+                AppContextManager.recordHardwareToggle(HardwareFeature.VOLUME, "Muted", false)
+            }
+            lower.contains("brightness") -> {
+                HardwareToggleManager.toggleBrightness(context)
+                AppContextManager.recordHardwareToggle(HardwareFeature.BRIGHTNESS, "Toggled", null)
+            }
+            lower.contains("dnd_on") -> executeResolvedHardwareToggle(HardwareFeature.DND, true)
+            lower.contains("dnd_off") -> executeResolvedHardwareToggle(HardwareFeature.DND, false)
+            lower.contains("hotspot_on") -> executeResolvedHardwareToggle(HardwareFeature.HOTSPOT, true)
+            lower.contains("hotspot_off") -> executeResolvedHardwareToggle(HardwareFeature.HOTSPOT, false)
+            lower.contains("mobile_data") -> executeResolvedHardwareToggle(HardwareFeature.MOBILE_DATA, null)
+            lower.contains("airplane") -> executeResolvedHardwareToggle(HardwareFeature.AIRPLANE_MODE, null)
+            else -> {
+                if (lower.contains("torch")) executeResolvedHardwareToggle(HardwareFeature.TORCH, true)
+                else if (lower.contains("wifi")) executeResolvedHardwareToggle(HardwareFeature.WIFI, true)
+            }
         }
     }
 
@@ -552,10 +750,19 @@ class VoiceCommandManager(private val context: Context) {
     }
 
     private fun handleHardwareVoiceCommand(lower: String, originalText: String) {
-        // Priority 1: Volume Commands (DIRECT API)
+        // Priority 1: Volume Commands (In-App first if available, else System API)
         if (isVolumeCommand(lower)) {
             val parsed = HardwareToggleManager.parseVolumeCommand(lower)
-            HardwareToggleManager.adjustVolume(context, parsed.action, parsed.explicitPercent)
+            if (MaxAccessibilityService.isRunning()) {
+                val action = if (lower.contains("down") || lower.contains("kam") || lower.contains("dheere") || lower.contains("dheeme")) "volume_down" else "volume_up"
+                MaxAccessibilityService.instance?.executeGenericMediaAction(action) { inAppSuccess: Boolean, _: String ->
+                    if (!inAppSuccess) {
+                        HardwareToggleManager.adjustVolume(context, parsed.action, parsed.explicitPercent)
+                    }
+                }
+            } else {
+                HardwareToggleManager.adjustVolume(context, parsed.action, parsed.explicitPercent)
+            }
             AppContextManager.recordHardwareToggle(
                 HardwareFeature.VOLUME,
                 if (parsed.explicitPercent != null) "Set to ${parsed.explicitPercent}%" else parsed.action.name

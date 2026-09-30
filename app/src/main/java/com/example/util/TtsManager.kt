@@ -29,7 +29,6 @@ object TtsManager {
     private const val KEY_RATE = "tts_rate"
     private const val KEY_VOICE_ID = "tts_voice_id"
     private const val KEY_LANG_MODE = "tts_lang_mode"
-    private const val KEY_GEMINI_LIVE_VOICE = "gemini_live_voice"
 
     private var tts: TextToSpeech? = null
     private var isInitialized = false
@@ -52,9 +51,6 @@ object TtsManager {
 
     private val _languageMode = MutableStateFlow("auto") // "auto", "hi_IN", "en_IN"
     val languageMode: StateFlow<String> = _languageMode.asStateFlow()
-
-    private val _geminiLiveVoice = MutableStateFlow("Puck")
-    val geminiLiveVoice: StateFlow<String> = _geminiLiveVoice.asStateFlow()
 
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
@@ -144,7 +140,6 @@ object TtsManager {
         _speechRate.value = prefs.getFloat(KEY_RATE, 1.02f).coerceIn(0.7f, 1.5f)
         _selectedVoiceId.value = prefs.getString(KEY_VOICE_ID, "auto_natural") ?: "auto_natural"
         _languageMode.value = prefs.getString(KEY_LANG_MODE, "auto") ?: "auto"
-        _geminiLiveVoice.value = prefs.getString(KEY_GEMINI_LIVE_VOICE, "Puck") ?: "Puck"
     }
 
     private fun savePreferences(context: Context) {
@@ -154,7 +149,6 @@ object TtsManager {
             .putFloat(KEY_RATE, _speechRate.value)
             .putString(KEY_VOICE_ID, _selectedVoiceId.value)
             .putString(KEY_LANG_MODE, _languageMode.value)
-            .putString(KEY_GEMINI_LIVE_VOICE, _geminiLiveVoice.value)
             .apply()
     }
 
@@ -252,13 +246,17 @@ object TtsManager {
      * - Long term memory recall & storage confirmations
      */
     fun speak(text: String, onDone: (() -> Unit)? = null) {
+        speak(text, TextToSpeech.QUEUE_FLUSH, onDone)
+    }
+
+    fun speak(text: String, queueMode: Int, onDone: (() -> Unit)? = null) {
         val cleanText = sanitizeForSpeech(text)
         if (cleanText.isBlank()) {
             onDone?.let { mainHandler.post { it.invoke() } }
             return
         }
 
-        DebugLogger.logInfo("TTS Speaking: \"$cleanText\"")
+        DebugLogger.logInfo("TTS Speaking (${if (queueMode == TextToSpeech.QUEUE_ADD) "queued" else "flush"}): \"$cleanText\"")
 
         if (!isInitialized || tts == null) {
             pendingSpeech = cleanText
@@ -306,12 +304,12 @@ object TtsManager {
                 }
             }
 
-            val utteranceId = "max_tts_${System.currentTimeMillis()}"
+            val utteranceId = "max_tts_${System.currentTimeMillis()}_${cleanText.hashCode()}"
             if (onDone != null) {
                 callbacks[utteranceId] = onDone
             }
 
-            ttsEngine.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            ttsEngine.speak(cleanText, queueMode, null, utteranceId)
         } catch (e: Exception) {
             Log.e(TAG, "Error speaking text in unified TTS", e)
             _isSpeaking.value = false
@@ -341,17 +339,11 @@ object TtsManager {
         savePreferences(context)
     }
 
-    fun setGeminiLiveVoice(context: Context, voiceName: String) {
-        _geminiLiveVoice.value = voiceName
-        savePreferences(context)
-    }
-
     fun resetToDefaults(context: Context) {
         _pitch.value = 1.0f
         _speechRate.value = 1.02f
         _selectedVoiceId.value = "auto_natural"
         _languageMode.value = "auto"
-        _geminiLiveVoice.value = "Puck"
         applyAudioSettings()
         savePreferences(context)
     }

@@ -121,20 +121,33 @@ object BatteryOptimizationManager {
         block: () -> T
     ): T {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MaxApp:$tag")
+        val wakeLock = try {
+            powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MaxApp:$tag")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to create wakeLock", e)
+            null
+        }
+        var lockAcquired = false
         return try {
-            wakeLock?.acquire(timeoutMs)
-            activeWakeLocks.incrementAndGet()
-            _batteryStatus.value = _batteryStatus.value.copy(activeWakeLockCount = activeWakeLocks.get())
+            try {
+                wakeLock?.acquire(timeoutMs)
+                lockAcquired = true
+                activeWakeLocks.incrementAndGet()
+                _batteryStatus.value = _batteryStatus.value.copy(activeWakeLockCount = activeWakeLocks.get())
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to acquire wakeLock: ${e.message}")
+            }
             block()
         } finally {
-            try {
-                if (wakeLock?.isHeld == true) {
-                    wakeLock.release()
-                }
-            } catch (_: Exception) {}
-            val count = activeWakeLocks.decrementAndGet()
-            _batteryStatus.value = _batteryStatus.value.copy(activeWakeLockCount = count.coerceAtLeast(0))
+            if (lockAcquired) {
+                try {
+                    if (wakeLock?.isHeld == true) {
+                        wakeLock.release()
+                    }
+                } catch (_: Exception) {}
+                val count = activeWakeLocks.decrementAndGet()
+                _batteryStatus.value = _batteryStatus.value.copy(activeWakeLockCount = count.coerceAtLeast(0))
+            }
         }
     }
 

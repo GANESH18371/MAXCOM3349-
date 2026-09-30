@@ -302,7 +302,7 @@ object DebugLogger {
         if (success) {
             safeLog(Log.INFO, TAG, logLine)
         } else {
-            safeLog(Log.ERROR, TAG, logLine)
+            safeLog(Log.WARN, TAG, logLine)
         }
         addEntry(logLine, LogType.INFO)
     }
@@ -317,7 +317,7 @@ object DebugLogger {
         if (success) {
             safeLog(Log.INFO, TAG, logLine)
         } else {
-            safeLog(Log.ERROR, TAG, logLine)
+            safeLog(Log.WARN, TAG, logLine)
         }
         addEntry(logLine, LogType.INFO)
     }
@@ -345,6 +345,57 @@ object DebugLogger {
      */
     fun logCallVoiceCommand(command: String, action: String) {
         val logLine = "CALL_VOICE_COMMAND: $command, action=$action"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "MESSAGE_TARGET_APP: <app-naam>"
+     */
+    fun logMessageTargetApp(appName: String) {
+        val logLine = "MESSAGE_TARGET_APP: $appName"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "CONTACT_LOOKUP: <naam/number>, found=<bool>"
+     */
+    fun logContactLookup(nameOrNumber: String, found: Boolean) {
+        val logLine = "CONTACT_LOOKUP: $nameOrNumber, found=$found"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "CONTACT_AUTO_SAVED: <number>"
+     */
+    fun logContactAutoSaved(number: String) {
+        val logLine = "CONTACT_AUTO_SAVED: $number"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "MESSAGE_SENT: app=<>, success/fail"
+     */
+    fun logMessageSent(appName: String, success: Boolean, details: String = "") {
+        val status = if (success) "success" else "fail"
+        val extra = if (details.isNotBlank()) " ($details)" else ""
+        val logLine = "MESSAGE_SENT: app=$appName, $status$extra"
+        if (success) {
+            safeLog(Log.INFO, TAG, logLine)
+        } else {
+            safeLog(Log.WARN, TAG, logLine)
+        }
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "MEDIA_COMMAND: <command>, target_app=<active-app-from-context>, action=<play/pause/next/previous>"
+     */
+    fun logMediaCommand(command: String, targetApp: String, action: String) {
+        val logLine = "MEDIA_COMMAND: $command, target_app=$targetApp, action=$action"
         safeLog(Log.INFO, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }

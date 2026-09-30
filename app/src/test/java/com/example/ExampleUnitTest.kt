@@ -384,4 +384,149 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message.startsWith("CAMERA_CAPTURE: type=back, result=fail") })
         assertTrue(logs.any { it.message == "SCENE_ANALYSIS: gemini_response=Saamne ek laptop aur kitaab rakhi hai" })
     }
+
+    @Test
+    fun genericMessaging_commandRecognitionAndParsing() {
+        val sampleApps = listOf(
+            InstalledApp("WhatsApp", "com.whatsapp"),
+            InstalledApp("Telegram", "org.telegram.messenger"),
+            InstalledApp("Instagram", "com.instagram.android"),
+            InstalledApp("Messages", "com.google.android.apps.messaging")
+        )
+
+        // 1. Telegram with phone number
+        val cmd1 = "Telegram par 9876543210 ko message karo kya haal hai"
+        assertTrue(com.example.manager.GenericMessagingManager.isMessagingCommand(cmd1.lowercase()))
+        val parsed1 = com.example.manager.GenericMessagingManager.parseCommand(cmd1, sampleApps)
+        assertEquals("Telegram", parsed1.targetAppName)
+        assertEquals("9876543210", parsed1.recipient)
+        assertTrue(parsed1.isPhoneNumber)
+        assertEquals("kya haal hai", parsed1.messagePromptOrText)
+
+        // 2. Instagram with contact name
+        val cmd2 = "Instagram par Ravi ko message karo hello"
+        assertTrue(com.example.manager.GenericMessagingManager.isMessagingCommand(cmd2.lowercase()))
+        val parsed2 = com.example.manager.GenericMessagingManager.parseCommand(cmd2, sampleApps)
+        assertEquals("Instagram", parsed2.targetAppName)
+        assertEquals("Ravi", parsed2.recipient)
+        assertEquals(false, parsed2.isPhoneNumber)
+        assertEquals("hello", parsed2.messagePromptOrText)
+
+        // 3. Unspecified app defaults to WhatsApp
+        val cmd3 = "9876543210 ko message karo main thoda late ho jaunga"
+        assertTrue(com.example.manager.GenericMessagingManager.isMessagingCommand(cmd3.lowercase()))
+        val parsed3 = com.example.manager.GenericMessagingManager.parseCommand(cmd3, sampleApps)
+        assertEquals("WhatsApp", parsed3.targetAppName)
+        assertEquals("9876543210", parsed3.recipient)
+        assertTrue(parsed3.isPhoneNumber)
+        assertTrue(parsed3.messagePromptOrText.contains("late"))
+
+        // 4. Default WhatsApp with name and topic
+        val cmd4 = "Ravi ko message karo birthday wish kar do"
+        assertTrue(com.example.manager.GenericMessagingManager.isMessagingCommand(cmd4.lowercase()))
+        val parsed4 = com.example.manager.GenericMessagingManager.parseCommand(cmd4, sampleApps)
+        assertEquals("WhatsApp", parsed4.targetAppName)
+        assertEquals("Ravi", parsed4.recipient)
+        assertEquals(false, parsed4.isPhoneNumber)
+        assertEquals("birthday wish kar do", parsed4.messagePromptOrText)
+    }
+
+    @Test
+    fun genericMessaging_debugLoggingFormats() {
+        DebugLogger.clearLogs()
+        DebugLogger.logMessageTargetApp("Telegram")
+        DebugLogger.logContactLookup("9876543210", false)
+        DebugLogger.logContactAutoSaved("9876543210")
+        DebugLogger.logMessageSent("Telegram", true, "Delivered via Accessibility")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "MESSAGE_TARGET_APP: Telegram" })
+        assertTrue(logs.any { it.message == "CONTACT_LOOKUP: 9876543210, found=false" })
+        assertTrue(logs.any { it.message == "CONTACT_AUTO_SAVED: 9876543210" })
+        assertTrue(logs.any { it.message.startsWith("MESSAGE_SENT: app=Telegram, success") })
+    }
+
+    @Test
+    fun genericMediaControl_commandRecognitionAndParsing() {
+        // 1. Play / search command with query
+        val cmdPlay = "Arijit Singh ka gaana chalao"
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdPlay.lowercase()))
+        val parsedPlay = com.example.manager.GenericAppControlManager.parseMediaCommand(cmdPlay)
+        assertEquals("play", parsedPlay.action)
+        assertTrue(parsedPlay.query?.contains("Arijit Singh") == true)
+
+        // 2. Pause / Stop command
+        val cmdPause1 = "pause karo"
+        val cmdPause2 = "gaana band karo"
+        val cmdPause3 = "video roko"
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdPause1.lowercase()))
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdPause2.lowercase()))
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdPause3.lowercase()))
+        val parsedPause = com.example.manager.GenericAppControlManager.parseMediaCommand(cmdPause1)
+        assertEquals("pause", parsedPause.action)
+
+        // 3. Next track / video command
+        val cmdNext1 = "agla wala chalao"
+        val cmdNext2 = "next video"
+        val cmdNext3 = "next"
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdNext1.lowercase()))
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdNext2.lowercase()))
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdNext3.lowercase()))
+        val parsedNext = com.example.manager.GenericAppControlManager.parseMediaCommand(cmdNext1)
+        assertEquals("next", parsedNext.action)
+
+        // 4. Previous track / video command
+        val cmdPrev1 = "pichla wala chalao"
+        val cmdPrev2 = "previous song"
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdPrev1.lowercase()))
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdPrev2.lowercase()))
+        val parsedPrev = com.example.manager.GenericAppControlManager.parseMediaCommand(cmdPrev1)
+        assertEquals("previous", parsedPrev.action)
+
+        // 5. Explicit app targeting (Spotify)
+        val cmdSpotify = "Spotify par Lofi chalao"
+        assertTrue(com.example.manager.GenericAppControlManager.isMediaCommand(cmdSpotify.lowercase()))
+        val parsedSpotify = com.example.manager.GenericAppControlManager.parseMediaCommand(cmdSpotify)
+        assertEquals("play", parsedSpotify.action)
+        assertEquals("Spotify", parsedSpotify.targetApp)
+        assertTrue(parsedSpotify.query?.contains("Lofi") == true)
+    }
+
+    @Test
+    fun genericMediaControl_activeAppContextAwareness() {
+        // Record active app as YouTube in context
+        val ytApp = InstalledApp("YouTube", "com.google.android.youtube")
+        com.example.manager.AppContextManager.recordAppOpen(ytApp)
+
+        // Command without specifying app: "agla wala chalao"
+        val parsed = com.example.manager.GenericAppControlManager.parseMediaCommand("agla wala chalao")
+        assertEquals("next", parsed.action)
+        assertEquals("YouTube", parsed.targetApp)
+        assertTrue(parsed.isAppAlreadyActive) // Already active, no need to relaunch!
+
+        // Command "pause karo"
+        val parsedPause = com.example.manager.GenericAppControlManager.parseMediaCommand("pause karo")
+        assertEquals("pause", parsedPause.action)
+        assertEquals("YouTube", parsedPause.targetApp)
+        assertTrue(parsedPause.isAppAlreadyActive)
+    }
+
+    @Test
+    fun genericMediaControl_debugLoggingFormat() {
+        DebugLogger.clearLogs()
+        DebugLogger.logMediaCommand(
+            command = "agla wala chalao",
+            targetApp = "YouTube",
+            action = "next"
+        )
+        DebugLogger.logMediaCommand(
+            command = "pause karo",
+            targetApp = "Spotify",
+            action = "pause"
+        )
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "MEDIA_COMMAND: agla wala chalao, target_app=YouTube, action=next" })
+        assertTrue(logs.any { it.message == "MEDIA_COMMAND: pause karo, target_app=Spotify, action=pause" })
+    }
 }

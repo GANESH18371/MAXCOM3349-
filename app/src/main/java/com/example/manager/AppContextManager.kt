@@ -20,6 +20,12 @@ sealed class InteractionRecord {
         val targetState: Boolean? = null,
         val timestamp: Long = System.currentTimeMillis()
     ) : InteractionRecord()
+
+    data class ConversationExchange(
+        val userQuery: String,
+        val assistantReply: String,
+        val timestamp: Long = System.currentTimeMillis()
+    ) : InteractionRecord()
 }
 
 data class ContextState(
@@ -116,6 +122,43 @@ object AppContextManager {
     fun getLastHardwareAction(): InteractionRecord.HardwareToggled? = _contextState.value.lastHardwareAction
 
     fun getRecentInteractions(): List<InteractionRecord> = _contextState.value.recentInteractions
+
+    fun recordConversationExchange(userQuery: String, reply: String) {
+        val currentList = _contextState.value.recentInteractions
+        val newRecord = InteractionRecord.ConversationExchange(userQuery, reply)
+        val updatedList = (listOf(newRecord) + currentList).take(MAX_HISTORY)
+        _contextState.value = _contextState.value.copy(
+            recentInteractions = updatedList
+        )
+    }
+
+    fun getRecentContextSummary(): String {
+        val state = _contextState.value
+        val items = mutableListOf<String>()
+
+        state.currentActiveApp?.let {
+            items.add("Active app: ${it.name}")
+        }
+        state.lastHardwareAction?.let {
+            items.add("Last action: ${it.feature.displayName}")
+        }
+
+        val recent = state.recentInteractions.take(2)
+        if (recent.isNotEmpty()) {
+            recent.forEach { record ->
+                when (record) {
+                    is InteractionRecord.AppOpened -> items.add("Opened ${record.app.name}")
+                    is InteractionRecord.HardwareToggled -> items.add("Toggled ${record.feature.displayName}")
+                    is InteractionRecord.ConversationExchange -> {
+                        val q = record.userQuery.take(35)
+                        val a = record.assistantReply.take(35)
+                        items.add("\"$q\" -> \"$a\"")
+                    }
+                }
+            }
+        }
+        return if (items.isEmpty()) "None" else items.joinToString("; ")
+    }
 
     fun clearMemory() {
         _contextState.value = ContextState()

@@ -65,7 +65,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.example.live.GeminiLiveManager
 import com.example.manager.AppContextManager
 import com.example.manager.DefaultAssistantManager
 import com.example.manager.VoiceCommandManager
@@ -79,7 +78,6 @@ import com.example.ui.components.CameraControlCard
 import com.example.ui.components.DebugLogConsole
 import com.example.ui.components.DefaultAssistantCard
 import com.example.ui.components.GeminiApiKeyCard
-import com.example.ui.components.GeminiLiveCard
 import com.example.ui.components.HardwareToggleGrid
 import com.example.ui.components.PermanentMemoryCard
 import com.example.ui.components.RemindersCard
@@ -137,14 +135,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
 
-        GeminiLiveManager.setCommandRouter { recognizedCommand ->
-            voiceManager.processCommand(recognizedCommand)
-        }
-
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             voiceManager.destroy()
-            GeminiLiveManager.stopLiveSession()
         }
     }
 
@@ -324,16 +317,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     // TAB 1: ASSISTANT & CONVERSATION MATRIX
                     // ==========================================
                     JarvisSectionHeader(
-                        title = "CONVERSATION & LIVE TRANSCRIPTS",
-                        subtitle = "Real-time stream logs & context. Voice activation is engaged via Dashboard Arc-Reactor."
+                        title = "NEURAL CONVERSATION CONSOLE",
+                        subtitle = "Real-time command transcripts, active context & quick chips"
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
-
-                    // Gemini Live Audio-to-Audio Real-Time Streaming Card
-                    GeminiLiveCard()
-
-                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Voice Command Card with Quick Chips & Context Aware State
                     VoiceControlCard(
