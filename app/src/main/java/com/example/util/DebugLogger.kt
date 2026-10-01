@@ -402,6 +402,51 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "STT_RAW_TEXT: <jo bhi voice-se-text convert hua, exact>"
+     */
+    fun logSttRawText(rawText: String) {
+        val logLine = "STT_RAW_TEXT: $rawText"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "COMMAND_ROUTER_CLASSIFICATION: <OFFLINE_TASK / SCREEN_TASK / CONVERSATION>"
+     */
+    fun logCommandRouterClassification(classification: String) {
+        val logLine = "COMMAND_ROUTER_CLASSIFICATION: $classification"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "GEMINI_REQUEST_SENT: <true/false>, payload=<kya bheja gaya>"
+     */
+    fun logGeminiRequestSent(sent: Boolean, payload: String) {
+        val logLine = "GEMINI_REQUEST_SENT: $sent, payload=$payload"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "GEMINI_RESPONSE_RECEIVED: <true/false>, raw_response=<jo bhi mila>"
+     */
+    fun logGeminiResponseReceived(received: Boolean, rawResponse: String) {
+        val logLine = "GEMINI_RESPONSE_RECEIVED: $received, raw_response=$rawResponse"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "TTS_SPEAK_CALLED: <true/false>, text=<kya bola gaya>"
+     */
+    fun logTtsSpeakCalled(called: Boolean, text: String) {
+        val logLine = "TTS_SPEAK_CALLED: $called, text=$text"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

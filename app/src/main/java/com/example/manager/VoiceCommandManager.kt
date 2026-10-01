@@ -141,6 +141,7 @@ class VoiceCommandManager(private val context: Context) {
 
     fun processCommand(commandText: String) {
         val trimmed = commandText.trim()
+        DebugLogger.logSttRawText(trimmed)
         if (trimmed.isBlank()) return
 
         _lastRecognizedText.value = trimmed
@@ -153,6 +154,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 0.0: PERMANENT LONG-TERM MEMORY LAYER
         // =========================================================================
         if (PermanentMemoryManager.isMemoryCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             scope.launch {
                 val memResult = PermanentMemoryManager.handleMemoryCommand(trimmed, context)
                 when (memResult) {
@@ -191,6 +193,7 @@ class VoiceCommandManager(private val context: Context) {
 
         when (contextResult) {
             is ContextResolutionResult.ResolvedVolume -> {
+                DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
                 DebugLogger.logContextUsed(true, contextResult.description)
                 val parsed = contextResult.parsed
                 HardwareToggleManager.adjustVolume(context, parsed.action, parsed.explicitPercent)
@@ -202,12 +205,14 @@ class VoiceCommandManager(private val context: Context) {
                 return
             }
             is ContextResolutionResult.ResolvedHardware -> {
+                DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
                 DebugLogger.logContextUsed(true, contextResult.description)
                 executeResolvedHardwareToggle(contextResult.feature, contextResult.targetState)
                 _voiceState.value = VoiceState.Success(contextResult.description)
                 return
             }
             is ContextResolutionResult.ResolvedAppOpen -> {
+                DebugLogger.logCommandRouterClassification("SCREEN_TASK")
                 DebugLogger.logContextUsed(true, contextResult.description)
                 val launched = AppOpenManager.launchApp(context, contextResult.app)
                 if (launched) {
@@ -221,6 +226,7 @@ class VoiceCommandManager(private val context: Context) {
                 return
             }
             is ContextResolutionResult.ResolvedAppClose -> {
+                DebugLogger.logCommandRouterClassification("SCREEN_TASK")
                 DebugLogger.logContextUsed(true, contextResult.description)
                 try {
                     val homeIntent = Intent(Intent.ACTION_MAIN).apply {
@@ -236,6 +242,7 @@ class VoiceCommandManager(private val context: Context) {
                 return
             }
             is ContextResolutionResult.Ambiguous -> {
+                DebugLogger.logCommandRouterClassification("CONVERSATION")
                 DebugLogger.logContextUsed(false, "Ambiguous: No active context")
                 _voiceState.value = VoiceState.Error(contextResult.message)
                 return
@@ -250,6 +257,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 0.5: WHATSAPP AUTO-REPLY VOICE CONTROL ("auto-reply on/off karo")
         // =========================================================================
         if (isAutoReplyCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             val turnOffWords = listOf("off", "band", "disable", "stop", "बंद", "हटाओ", "rok", "bujhao")
             val isOff = turnOffWords.any { lower.contains(it) }
             val targetEnable = !isOff
@@ -274,6 +282,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 0.7: WEATHER COMMAND ("aaj ka mausam kaisa hai")
         // =========================================================================
         if (WeatherManager.isWeatherCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("CONVERSATION")
             _voiceState.value = VoiceState.Processing("मौसम की जानकारी ली जा रही है...")
             WeatherManager.fetchAndAnnounceWeather(context) { success, msg ->
                 if (success) {
@@ -289,6 +298,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 0.8: REMINDERS & ALARMS ("mujhe [samay] par [kaam] yaad dilana")
         // =========================================================================
         if (ReminderParser.isReminderOrAlarmCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             handleReminderVoiceCommand(trimmed, lower)
             return
         }
@@ -297,6 +307,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 0.9: CAMERA & SCENE ANALYSIS ("selfie lo", "photo lo", "saamne kya hai")
         // =========================================================================
         if (MaxCameraManager.isSceneAnalysisCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("CONVERSATION")
             _voiceState.value = VoiceState.Processing("सामने का दृश्य देखा जा रहा है...")
             MaxCameraManager.analyzeScene(context) { success, result ->
                 if (success) {
@@ -309,6 +320,7 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         if (MaxCameraManager.isSelfieCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("SCREEN_TASK")
             _voiceState.value = VoiceState.Processing("सेल्फी ली जा रही है...")
             MaxCameraManager.capturePhoto(context, isFrontCamera = true) { success, result ->
                 if (success) {
@@ -321,6 +333,7 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         if (MaxCameraManager.isBackPhotoCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("SCREEN_TASK")
             _voiceState.value = VoiceState.Processing("फोटो ली जा रही है...")
             MaxCameraManager.capturePhoto(context, isFrontCamera = false) { success, result ->
                 if (success) {
@@ -336,6 +349,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 0.95: ANTI-THEFT GUARD EMERGENCY CONTACT ("mera emergency contact 9876543210 hai")
         // =========================================================================
         if (AntiTheftManager.isTrustedContactCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             _voiceState.value = VoiceState.Processing("इमरजेंसी कॉन्टैक्ट सेट किया जा रहा है...")
             val (saved, message) = AntiTheftManager.parseAndSaveContactFromVoice(context, trimmed)
             if (saved) {
@@ -350,6 +364,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 0.96: GENERIC MULTI-APP MESSAGING & AUTO-SAVE ("Telegram par 9876543210 ko message karo", "Instagram par Ravi ko message bhejo", etc.)
         // =========================================================================
         if (GenericMessagingManager.isMessagingCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("SCREEN_TASK")
             _voiceState.value = VoiceState.Processing("मैसेज तैयार किया जा रहा है...")
             GenericMessagingManager.executeMessagingFlow(context, trimmed) { success, msg ->
                 if (success) {
@@ -365,6 +380,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 0.97: GENERIC APP-CONTROL FOR MEDIA COMMANDS ("agla wala chalao", "pause karo", "Arijit Singh chalao", etc.)
         // =========================================================================
         if (GenericAppControlManager.isMediaCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("SCREEN_TASK")
             _voiceState.value = VoiceState.Processing("Media command execute ho raha hai...")
             GenericAppControlManager.executeMediaFlow(context, trimmed) { success, msg ->
                 if (success) {
@@ -380,6 +396,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 0.98: COMPOUND LOCAL MULTI-INTENT ("torch on karo aur wifi band karo")
         // =========================================================================
         if (tryExecuteCompoundLocalCommand(trimmed)) {
+            DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             return
         }
 
@@ -387,6 +404,7 @@ class VoiceCommandManager(private val context: Context) {
         // STEP 1: HARDWARE TOGGLE COMMAND (VOLUME / TORCH / WIFI / etc.) [UNTOUCHED]
         // =========================================================================
         if (isHardwareCommand(lower)) {
+            DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             handleHardwareVoiceCommand(lower, trimmed)
             _voiceState.value = VoiceState.Success("Hardware action triggered for \"$trimmed\"")
             return
@@ -397,6 +415,7 @@ class VoiceCommandManager(private val context: Context) {
         // =========================================================================
         val launched = AppOpenManager.processAndLaunch(context, trimmed)
         if (launched) {
+            DebugLogger.logCommandRouterClassification("SCREEN_TASK")
             val apps = AppOpenManager.getFreshInstalledApps(context)
             val matchedApp = AppOpenManager.fuzzyMatchApp(trimmed, apps)
             val appLabel = matchedApp?.name ?: AppOpenManager.sanitizeCommand(trimmed).replaceFirstChar { it.uppercase() }
@@ -415,6 +434,7 @@ class VoiceCommandManager(private val context: Context) {
         // Understands casual, colloquial, indirect phrasing, idioms, and multi-sentence thought flows.
         // Executes multiple intents sequentially and speaks natural, warm Hindi/Hinglish.
         // =========================================================================
+        DebugLogger.logCommandRouterClassification("CONVERSATION")
         _voiceState.value = VoiceState.Processing("Samajh raha hoon...")
         scope.launch {
             var isHandled = false

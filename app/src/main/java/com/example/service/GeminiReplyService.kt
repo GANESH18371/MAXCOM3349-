@@ -123,6 +123,8 @@ object GeminiReplyService {
         val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
 
         if (apiKey.isBlank()) {
+            DebugLogger.logGeminiRequestSent(false, "API key missing or blank")
+            DebugLogger.logGeminiResponseReceived(false, "API key missing, returning local scene fallback")
             DebugLogger.logInfo("Gemini API key not configured, returning local scene fallback")
             return@withContext "सामने एक कमरा और वस्तुएं दिखाई दे रही हैं. स्पष्ट विवरण के लिए Gemini API Key कॉन्फ़िगर करें."
         }
@@ -154,7 +156,10 @@ object GeminiReplyService {
                 put("generationConfig", genConfig)
             }
 
-            val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
+            val payloadStr = jsonBody.toString()
+            DebugLogger.logGeminiRequestSent(true, "multimodal_scene_analysis payload length=${payloadStr.length}")
+
+            val requestBody = payloadStr.toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
                 .url("$BASE_URL?key=$apiKey")
                 .post(requestBody)
@@ -164,6 +169,7 @@ object GeminiReplyService {
             val responseBody = response.body?.string()
 
             if (response.isSuccessful && !responseBody.isNullOrBlank()) {
+                DebugLogger.logGeminiResponseReceived(true, responseBody)
                 val jsonResponse = JSONObject(responseBody)
                 val candidates = jsonResponse.optJSONArray("candidates")
                 if (candidates != null && candidates.length() > 0) {
@@ -177,9 +183,12 @@ object GeminiReplyService {
                     }
                 }
             } else {
+                val errorDetails = responseBody ?: "HTTP ${response.code}: ${response.message}"
+                DebugLogger.logGeminiResponseReceived(false, errorDetails)
                 DebugLogger.logInfo("Gemini Scene Analysis API error: ${response.code} ${responseBody?.take(100)}")
             }
         } catch (e: Exception) {
+            DebugLogger.logGeminiResponseReceived(false, "Exception: ${e.message}")
             DebugLogger.logInfo("Gemini scene analysis exception: ${e.message}")
         }
 
@@ -200,6 +209,8 @@ object GeminiReplyService {
         val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
 
         if (apiKey.isBlank()) {
+            DebugLogger.logGeminiRequestSent(false, "API key missing or blank")
+            DebugLogger.logGeminiResponseReceived(false, "API key missing, returning local comprehension fallback")
             return@withContext generateLocalComprehensionFallback(userQuery)
         }
 
@@ -272,7 +283,10 @@ object GeminiReplyService {
                 put("generationConfig", genConfig)
             }
 
-            val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
+            val payloadStr = jsonBody.toString()
+            DebugLogger.logGeminiRequestSent(true, payloadStr)
+
+            val requestBody = payloadStr.toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
                 .url("$BASE_URL?key=$apiKey")
                 .post(requestBody)
@@ -282,6 +296,7 @@ object GeminiReplyService {
             val responseBody = response.body?.string()
 
             if (response.isSuccessful && !responseBody.isNullOrBlank()) {
+                DebugLogger.logGeminiResponseReceived(true, responseBody)
                 val jsonResponse = JSONObject(responseBody)
                 val candidates = jsonResponse.optJSONArray("candidates")
                 if (candidates != null && candidates.length() > 0) {
@@ -295,8 +310,12 @@ object GeminiReplyService {
                         }
                     }
                 }
+            } else {
+                val errorDetails = responseBody ?: "HTTP ${response.code}: ${response.message}"
+                DebugLogger.logGeminiResponseReceived(false, errorDetails)
             }
         } catch (e: Exception) {
+            DebugLogger.logGeminiResponseReceived(false, "Exception: ${e.message}")
             DebugLogger.logInfo("Gemini deep comprehension exception: ${e.message}")
         }
 

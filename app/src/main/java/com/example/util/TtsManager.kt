@@ -252,10 +252,12 @@ object TtsManager {
     fun speak(text: String, queueMode: Int, onDone: (() -> Unit)? = null) {
         val cleanText = sanitizeForSpeech(text)
         if (cleanText.isBlank()) {
+            DebugLogger.logTtsSpeakCalled(false, "")
             onDone?.let { mainHandler.post { it.invoke() } }
             return
         }
 
+        DebugLogger.logTtsSpeakCalled(true, cleanText)
         DebugLogger.logInfo("TTS Speaking (${if (queueMode == TextToSpeech.QUEUE_ADD) "queued" else "flush"}): \"$cleanText\"")
 
         if (!isInitialized || tts == null) {

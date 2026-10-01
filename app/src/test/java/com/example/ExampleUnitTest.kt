@@ -529,4 +529,37 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "MEDIA_COMMAND: agla wala chalao, target_app=YouTube, action=next" })
         assertTrue(logs.any { it.message == "MEDIA_COMMAND: pause karo, target_app=Spotify, action=pause" })
     }
+
+    @Test
+    fun conversationPipeline_debugLoggingFormats() {
+        DebugLogger.clearLogs()
+
+        // 1. STT Raw Text
+        DebugLogger.logSttRawText("yeh kya hai batao")
+
+        // 2. Command Router Classification
+        DebugLogger.logCommandRouterClassification("CONVERSATION")
+        DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
+        DebugLogger.logCommandRouterClassification("SCREEN_TASK")
+
+        // 3. Gemini Request Sent
+        DebugLogger.logGeminiRequestSent(true, "{\"userQuery\":\"yeh kya hai batao\"}")
+
+        // 4. Gemini Response Received
+        DebugLogger.logGeminiResponseReceived(true, "{\"reply_text\":\"Yeh ek laptop hai.\"}")
+
+        // 5. TTS Speak Called
+        DebugLogger.logTtsSpeakCalled(true, "Yeh ek laptop hai.")
+        DebugLogger.logTtsSpeakCalled(false, "")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "STT_RAW_TEXT: yeh kya hai batao" })
+        assertTrue(logs.any { it.message == "COMMAND_ROUTER_CLASSIFICATION: CONVERSATION" })
+        assertTrue(logs.any { it.message == "COMMAND_ROUTER_CLASSIFICATION: OFFLINE_TASK" })
+        assertTrue(logs.any { it.message == "COMMAND_ROUTER_CLASSIFICATION: SCREEN_TASK" })
+        assertTrue(logs.any { it.message == "GEMINI_REQUEST_SENT: true, payload={\"userQuery\":\"yeh kya hai batao\"}" })
+        assertTrue(logs.any { it.message == "GEMINI_RESPONSE_RECEIVED: true, raw_response={\"reply_text\":\"Yeh ek laptop hai.\"}" })
+        assertTrue(logs.any { it.message == "TTS_SPEAK_CALLED: true, text=Yeh ek laptop hai." })
+        assertTrue(logs.any { it.message == "TTS_SPEAK_CALLED: false, text=" })
+    }
 }
