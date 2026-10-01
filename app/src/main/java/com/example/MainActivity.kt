@@ -1,10 +1,14 @@
 package com.example
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import com.example.manager.DefaultAssistantManager
 import com.example.manager.HardwareToggleManager
 import com.example.ui.MainScreen
@@ -12,6 +16,31 @@ import com.example.ui.theme.AppTheme
 import com.example.util.DebugLogger
 
 class MainActivity : ComponentActivity() {
+
+    private var pendingCameraAction: (() -> Unit)? = null
+
+    val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            DebugLogger.logInfo("Camera permission granted by user")
+            val action = pendingCameraAction
+            pendingCameraAction = null
+            action?.invoke()
+        } else {
+            DebugLogger.logInfo("Camera permission denied by user")
+            pendingCameraAction = null
+        }
+    }
+
+    fun requestCameraPermission(onGranted: (() -> Unit)? = null) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            onGranted?.invoke()
+            return
+        }
+        pendingCameraAction = onGranted
+        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

@@ -98,8 +98,17 @@ object MaxCameraManager {
         val typeStr = if (isFrontCamera) "selfie" else "back"
 
         if (!hasCameraPermission(context)) {
-            val msg = "कैमरा इस्तेमाल करने के लिए कैमरा परमिशन ज़रूरी है. कृपया स्क्रीन पर परमिशन दें."
-            TtsManager.speak(msg)
+            val activity = com.example.MainActivity.currentActivity
+            if (activity != null) {
+                activity.requestCameraPermission {
+                    capturePhoto(context, isFrontCamera, onComplete)
+                }
+                val msg = "कैमरा इस्तेमाल करने के लिए कृपया स्क्रीन पर Permission Allow करें."
+                TtsManager.speak(msg)
+            } else {
+                val msg = "कैमरा इस्तेमाल करने के लिए कैमरा परमिशन ज़रूरी है. कृपया स्क्रीन पर परमिशन दें."
+                TtsManager.speak(msg)
+            }
             DebugLogger.logCameraCapture(type = typeStr, success = false, details = "Camera permission missing")
             onComplete?.invoke(false, "Camera permission missing")
             return
@@ -199,8 +208,17 @@ object MaxCameraManager {
         onComplete: ((Boolean, String) -> Unit)? = null
     ) {
         if (!hasCameraPermission(context)) {
-            val msg = "सामने का दृश्य देखने के लिए कैमरा परमिशन ज़रूरी है."
-            TtsManager.speak(msg)
+            val activity = com.example.MainActivity.currentActivity
+            if (activity != null) {
+                activity.requestCameraPermission {
+                    analyzeScene(context, onComplete)
+                }
+                val msg = "सामने का दृश्य देखने के लिए कृपया स्क्रीन पर Permission Allow करें."
+                TtsManager.speak(msg)
+            } else {
+                val msg = "सामने का दृश्य देखने के लिए कैमरा परमिशन ज़रूरी है."
+                TtsManager.speak(msg)
+            }
             onComplete?.invoke(false, "Camera permission missing")
             return
         }

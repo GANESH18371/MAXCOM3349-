@@ -249,6 +249,8 @@ object DebugLogger {
         val logLine = "CAMERA_CAPTURE: type=$type, result=$result$extra"
         if (success) {
             safeLog(Log.INFO, TAG, logLine)
+        } else if (details.contains("permission", ignoreCase = true)) {
+            safeLog(Log.WARN, TAG, logLine)
         } else {
             safeLog(Log.ERROR, TAG, logLine)
         }
