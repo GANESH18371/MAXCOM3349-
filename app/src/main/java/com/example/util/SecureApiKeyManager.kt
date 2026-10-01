@@ -157,19 +157,25 @@ object SecureApiKeyManager {
     }
 
     /**
-     * Validates the provided API key by calling the models list endpoint.
+     * Validates the provided API key by executing a real test API call to Google Generative Language API.
      */
     suspend fun validateKey(candidateKey: String): Result<String> = withContext(Dispatchers.IO) {
         val key = candidateKey.trim()
         if (key.isBlank()) {
-            return@withContext Result.failure(Exception("API Key cannot be blank"))
+            return@withContext Result.failure(Exception("Yeh API key invalid hai, sahi key daaliye"))
+        }
+
+        // Structural sanity check: Gemini API keys always start with AIzaSy and are at least 30 chars
+        if (!key.startsWith("AIzaSy") || key.length < 30) {
+            return@withContext Result.failure(Exception("Yeh API key invalid hai, sahi key daaliye"))
         }
 
         val client = OkHttpClient.Builder()
-            .connectTimeout(6, TimeUnit.SECONDS)
-            .readTimeout(6, TimeUnit.SECONDS)
+            .connectTimeout(7, TimeUnit.SECONDS)
+            .readTimeout(7, TimeUnit.SECONDS)
             .build()
 
+        // Real lightweight verification call
         val url = "https://generativelanguage.googleapis.com/v1beta/models?key=$key"
         val request = Request.Builder()
             .url(url)
@@ -178,22 +184,57 @@ object SecureApiKeyManager {
 
         try {
             client.newCall(request).execute().use { response ->
+                val code = response.code
+                val errorBody = response.body?.string() ?: ""
+
                 if (response.isSuccessful) {
-                    Result.success("API Key is VALID and ACTIVE!")
+                    Result.success("Configured ✓")
                 } else {
-                    val code = response.code
-                    val errorBody = response.body?.string() ?: ""
-                    val msg = when (code) {
-                        400 -> "Invalid API Key format or parameter"
-                        403 -> "API Key expired, disabled, or unauthorized"
-                        429 -> "API Key quota exceeded"
-                        else -> "API Error: HTTP $code ($errorBody)"
+                    val msg = when {
+                        code == 400 || errorBody.contains("API_KEY_INVALID", ignoreCase = true) ->
+                            "Yeh API key invalid hai, sahi key daaliye"
+                        code == 401 || code == 403 ->
+                            "Yeh API key invalid hai, sahi key daaliye"
+                        code == 429 ->
+                            "API Key quota exceeded"
+                        else ->
+                            "Yeh API key invalid hai, sahi key daaliye"
                     }
                     Result.failure(Exception(msg))
                 }
             }
         } catch (e: Exception) {
-            Result.failure(Exception("Connection error: ${e.localizedMessage ?: "Unable to reach Google servers"}"))
+            Result.failure(Exception("Yeh API key invalid hai, sahi key daaliye (${e.localizedMessage ?: "Network error"})"))
+        }
+    }
+
+    /**
+     * Validates candidate key with a REAL test API call BEFORE saving.
+     * Only saves if validation passes.
+     */
+    suspend fun validateAndSaveApiKey(context: Context, candidateKey: String): Result<String> = withContext(Dispatchers.IO) {
+        val trimmed = candidateKey.trim()
+
+        // Debug Log requirement 5: "API_KEY_VALIDATION_ATTEMPT: true"
+        DebugLogger.logApiKeyValidationAttempt()
+
+        val validationResult = validateKey(trimmed)
+        if (validationResult.isSuccess) {
+            val saved = saveApiKey(context, trimmed)
+            if (saved) {
+                // Debug Log requirement 5: "API_KEY_VALIDATION_RESULT: valid"
+                DebugLogger.logApiKeyValidationResult(true)
+                Result.success("Configured ✓")
+            } else {
+                val err = "Storage error: Failed to save key"
+                DebugLogger.logApiKeyValidationResult(false, err)
+                Result.failure(Exception(err))
+            }
+        } else {
+            val err = validationResult.exceptionOrNull()?.message ?: "Yeh API key invalid hai, sahi key daaliye"
+            // Debug Log requirement 5: "API_KEY_VALIDATION_RESULT: invalid, error=<msg>"
+            DebugLogger.logApiKeyValidationResult(false, err)
+            Result.failure(Exception("Yeh API key invalid hai, sahi key daaliye"))
         }
     }
 }

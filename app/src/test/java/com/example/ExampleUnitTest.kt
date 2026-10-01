@@ -562,4 +562,29 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "TTS_SPEAK_CALLED: true, text=Yeh ek laptop hai." })
         assertTrue(logs.any { it.message == "TTS_SPEAK_CALLED: false, text=" })
     }
+
+    @Test
+    fun apiKeyValidation_rejectsInvalidKeysAndFormatsLogs() = kotlinx.coroutines.runBlocking {
+        DebugLogger.clearLogs()
+
+        // 1. Validate random text key
+        val invalidKey = "random_fake_key_12345"
+        val result = com.example.util.SecureApiKeyManager.validateKey(invalidKey)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("Yeh API key invalid hai, sahi key daaliye") == true)
+
+        // 2. Validate blank key
+        val blankResult = com.example.util.SecureApiKeyManager.validateKey("   ")
+        assertTrue(blankResult.isFailure)
+
+        // 3. Test validation logs
+        DebugLogger.logApiKeyValidationAttempt()
+        DebugLogger.logApiKeyValidationResult(false, result.exceptionOrNull()?.message ?: "Invalid key")
+        DebugLogger.logApiKeyValidationResult(true)
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "API_KEY_VALIDATION_ATTEMPT: true" })
+        assertTrue(logs.any { it.message.startsWith("API_KEY_VALIDATION_RESULT: invalid, error=Yeh API key invalid hai") })
+        assertTrue(logs.any { it.message == "API_KEY_VALIDATION_RESULT: valid" })
+    }
 }

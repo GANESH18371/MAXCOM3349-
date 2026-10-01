@@ -447,6 +447,32 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "API_KEY_VALIDATION_ATTEMPT: true"
+     */
+    fun logApiKeyValidationAttempt() {
+        val logLine = "API_KEY_VALIDATION_ATTEMPT: true"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "API_KEY_VALIDATION_RESULT: valid/invalid, error=<agar koi ho>"
+     */
+    fun logApiKeyValidationResult(isValid: Boolean, error: String = "") {
+        val logLine = if (isValid) {
+            "API_KEY_VALIDATION_RESULT: valid"
+        } else {
+            "API_KEY_VALIDATION_RESULT: invalid, error=${if (error.isNotBlank()) error else "Yeh API key invalid hai, sahi key daaliye"}"
+        }
+        if (isValid) {
+            safeLog(Log.INFO, TAG, logLine)
+        } else {
+            safeLog(Log.WARN, TAG, logLine)
+        }
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

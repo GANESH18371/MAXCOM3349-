@@ -71,6 +71,7 @@ import com.example.ui.theme.JarvisSurface
 import com.example.ui.theme.JarvisTextDim
 import com.example.ui.theme.JarvisTextPrimary
 import com.example.ui.theme.JarvisTextSecondary
+import com.example.util.DebugLogger
 import com.example.util.SecureApiKeyManager
 import kotlinx.coroutines.launch
 
@@ -170,7 +171,7 @@ fun GeminiApiKeyCard(
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text(
-                        text = if (isConfigured) "CONFIGURED" else "KEY MISSING",
+                        text = if (isConfigured) "CONFIGURED ✓" else "KEY MISSING",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
@@ -279,13 +280,17 @@ fun GeminiApiKeyCard(
                                         isValidating = true
                                         validationStatus = "Testing connection to Google Gemini API..."
                                         validationSuccess = null
+                                        DebugLogger.logApiKeyValidationAttempt()
                                         val result = SecureApiKeyManager.validateKey(currentKey)
                                         isValidating = false
                                         result.onSuccess {
-                                            validationStatus = it
+                                            DebugLogger.logApiKeyValidationResult(true)
+                                            validationStatus = "Configured ✓"
                                             validationSuccess = true
                                         }.onFailure {
-                                            validationStatus = it.message
+                                            val err = it.message ?: "Yeh API key invalid hai, sahi key daaliye"
+                                            DebugLogger.logApiKeyValidationResult(false, err)
+                                            validationStatus = "Yeh API key invalid hai, sahi key daaliye"
                                             validationSuccess = false
                                         }
                                     }
@@ -389,17 +394,33 @@ fun GeminiApiKeyCard(
                             onClick = {
                                 val trimmed = inputKey.trim()
                                 if (trimmed.isBlank()) {
-                                    Toast.makeText(context, "Please enter a valid key", Toast.LENGTH_SHORT).show()
+                                    validationStatus = "Yeh API key invalid hai, sahi key daaliye"
+                                    validationSuccess = false
+                                    Toast.makeText(context, "Yeh API key invalid hai, sahi key daaliye", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    val saved = SecureApiKeyManager.saveApiKey(context, trimmed)
-                                    if (saved) {
-                                        isEditing = false
-                                        Toast.makeText(context, "Gemini API Key saved securely!", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Failed to save key", Toast.LENGTH_SHORT).show()
+                                    scope.launch {
+                                        isValidating = true
+                                        validationStatus = "Testing key with Google Gemini API..."
+                                        validationSuccess = null
+
+                                        // Real test API call to Gemini BEFORE saving!
+                                        val result = SecureApiKeyManager.validateAndSaveApiKey(context, trimmed)
+                                        isValidating = false
+
+                                        result.onSuccess {
+                                            isEditing = false
+                                            validationStatus = "Configured ✓"
+                                            validationSuccess = true
+                                            Toast.makeText(context, "Configured ✓: Gemini API Key verified & saved!", Toast.LENGTH_SHORT).show()
+                                        }.onFailure {
+                                            validationStatus = "Yeh API key invalid hai, sahi key daaliye"
+                                            validationSuccess = false
+                                            Toast.makeText(context, "Yeh API key invalid hai, sahi key daaliye", Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                 }
                             },
+                            enabled = !isValidating,
                             colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier
@@ -407,13 +428,29 @@ fun GeminiApiKeyCard(
                                 .height(36.dp)
                                 .testTag("save_api_key_button")
                         ) {
-                            Text(
-                                text = "SAVE API KEY",
-                                color = Color.Black,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            if (isValidating) {
+                                CircularProgressIndicator(
+                                    color = Color.Black,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "VERIFYING...",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            } else {
+                                Text(
+                                    text = "SAVE API KEY",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
 
                         if (isEditing) {
