@@ -81,6 +81,7 @@ import com.example.ui.components.GeminiApiKeyCard
 import com.example.ui.components.HardwareToggleGrid
 import com.example.ui.components.PermanentMemoryCard
 import com.example.ui.components.RemindersCard
+import com.example.ui.components.VoiceCloningCard
 import com.example.ui.components.VoiceSettingsCard
 import com.example.ui.components.WeatherCard
 import com.example.ui.components.WhatsAppAutoReplyCard
@@ -416,6 +417,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     // Centralized Gemini API Key Vault Card (AES-256 Encrypted)
                     GeminiApiKeyCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Voice Cloning Card (Apni Khud Ki Awaaz)
+                    VoiceCloningCard()
 
                     Spacer(modifier = Modifier.height(16.dp))
 

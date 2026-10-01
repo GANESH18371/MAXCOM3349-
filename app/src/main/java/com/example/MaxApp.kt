@@ -8,6 +8,7 @@ class MaxApp : Application() {
         super.onCreate()
         instance = this
         SecureApiKeyManager.init(this)
+        com.example.manager.ClonedVoiceManager.init(this)
     }
 
     companion object {

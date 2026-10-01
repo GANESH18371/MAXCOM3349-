@@ -587,4 +587,23 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message.startsWith("API_KEY_VALIDATION_RESULT: invalid, error=Yeh API key invalid hai") })
         assertTrue(logs.any { it.message == "API_KEY_VALIDATION_RESULT: valid" })
     }
+
+    @Test
+    fun voiceCloning_stateAndLoggingTest() {
+        DebugLogger.clearLogs()
+
+        // 1. Verify 5 Sample Prompts exist and are non-empty
+        assertEquals(5, com.example.manager.ClonedVoiceManager.SAMPLE_PROMPTS.size)
+        assertTrue(com.example.manager.ClonedVoiceManager.SAMPLE_PROMPTS.all { it.isNotBlank() })
+
+        // 2. Logging formats
+        DebugLogger.logClonedVoiceStatus(true, "21m00Tcm4TlvDq8ikWAM")
+        DebugLogger.logClonedVoiceSynthesis(true, "TTS in owner's cloned voice")
+        DebugLogger.logClonedVoiceSynthesis(false, "HTTP 401, fallback to Android TTS")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "CLONED_VOICE_STATUS: enabled=true, voice_id=21m00Tcm..." })
+        assertTrue(logs.any { it.message == "CLONED_VOICE_SYNTHESIS: success=true (TTS in owner's cloned voice)" })
+        assertTrue(logs.any { it.message == "CLONED_VOICE_SYNTHESIS: success=false (HTTP 401, fallback to Android TTS)" })
+    }
 }

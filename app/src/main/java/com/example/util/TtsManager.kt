@@ -260,6 +260,26 @@ object TtsManager {
         DebugLogger.logTtsSpeakCalled(true, cleanText)
         DebugLogger.logInfo("TTS Speaking (${if (queueMode == TextToSpeech.QUEUE_ADD) "queued" else "flush"}): \"$cleanText\"")
 
+        // 1. Cloned Voice (Owner's voice via AI cloning API)
+        if (com.example.manager.ClonedVoiceManager.isClonedVoiceActive()) {
+            val handled = com.example.manager.ClonedVoiceManager.speakWithClonedVoice(
+                cleanText,
+                onDone = onDone,
+                onFallback = {
+                    // Fallback seamlessly to local Android TTS so app is NEVER silent
+                    speakWithDefaultTts(cleanText, queueMode, onDone)
+                }
+            )
+            if (handled) {
+                return
+            }
+        }
+
+        // 2. Default high-quality local Android TTS
+        speakWithDefaultTts(cleanText, queueMode, onDone)
+    }
+
+    private fun speakWithDefaultTts(cleanText: String, queueMode: Int, onDone: (() -> Unit)? = null) {
         if (!isInitialized || tts == null) {
             pendingSpeech = cleanText
             pendingCallback = onDone
@@ -374,6 +394,7 @@ object TtsManager {
 
     fun stop() {
         try {
+            com.example.manager.ClonedVoiceManager.stop()
             tts?.stop()
             _isSpeaking.value = false
         } catch (e: Exception) {
@@ -383,6 +404,7 @@ object TtsManager {
 
     fun shutdown() {
         try {
+            com.example.manager.ClonedVoiceManager.stop()
             callbacks.clear()
             tts?.stop()
             tts?.shutdown()
