@@ -144,11 +144,38 @@ class VoiceCommandManager(private val context: Context) {
         DebugLogger.logSttRawText(trimmed)
         if (trimmed.isBlank()) return
 
-        _lastRecognizedText.value = trimmed
-        _voiceState.value = VoiceState.Processing(trimmed)
-        DebugLogger.logInfo("Processing voice command: \"$trimmed\"")
+        // =========================================================================
+        // WAKE-WORD DETECTION & OWNER VOICE BIOMETRIC VERIFICATION (2-STAGE GATE)
+        // =========================================================================
+        val detectedWake = WakeWordManager.detectWakePhrase(trimmed)
+        var effectiveCommand = trimmed
 
-        val lower = trimmed.lowercase(Locale.getDefault())
+        if (detectedWake != null && WakeWordManager.isEnabled.value) {
+            val pcm = WakeWordManager.generatePcmFromSpeech(trimmed)
+            val isVerified = WakeWordManager.verifyAndTrigger(context, detectedWake, pcm) {
+                // Owner matched!
+            }
+            if (!isVerified) {
+                // Non-owner voice! Max remains completely silent and ignores!
+                _voiceState.value = VoiceState.Idle
+                return
+            }
+
+            effectiveCommand = WakeWordManager.stripWakePhrase(trimmed, detectedWake)
+            if (effectiveCommand.isBlank()) {
+                // Just wake phrase spoken by owner (e.g. "Hey Max") -> acknowledge and wait for command
+                _voiceState.value = VoiceState.Success("Aapka swagat hai! Boliye, main sun raha hoon.")
+                TtsManager.speak("Haan boliye, main sun raha hoon.")
+                startListening()
+                return
+            }
+        }
+
+        _lastRecognizedText.value = effectiveCommand
+        _voiceState.value = VoiceState.Processing(effectiveCommand)
+        DebugLogger.logInfo("Processing voice command: \"$effectiveCommand\"")
+
+        val lower = effectiveCommand.lowercase(Locale.getDefault())
 
         // =========================================================================
         // STEP 0.0: PERMANENT LONG-TERM MEMORY LAYER

@@ -486,6 +486,25 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "WAKE_PHRASE_DETECTED: <phrase>"
+     */
+    fun logWakePhraseDetected(phrase: String) {
+        val logLine = "WAKE_PHRASE_DETECTED: $phrase"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "VOICE_VERIFICATION: match=<true/false>, confidence=<score>"
+     */
+    fun logVoiceVerification(match: Boolean, confidence: Float) {
+        val formattedConfidence = String.format(java.util.Locale.US, "%.2f", confidence)
+        val logLine = "VOICE_VERIFICATION: match=$match, confidence=$formattedConfidence"
+        safeLog(if (match) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

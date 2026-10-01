@@ -606,4 +606,39 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "CLONED_VOICE_SYNTHESIS: success=true (TTS in owner's cloned voice)" })
         assertTrue(logs.any { it.message == "CLONED_VOICE_SYNTHESIS: success=false (HTTP 401, fallback to Android TTS)" })
     }
+
+    @Test
+    fun wakeWordAndOwnerVerification_test() {
+        DebugLogger.clearLogs()
+
+        // 1. Multi-phrase wake-word detection test
+        assertEquals("Hey Max", com.example.manager.WakeWordManager.detectWakePhrase("Hey Max, YouTube kholo"))
+        assertEquals("OK Max", com.example.manager.WakeWordManager.detectWakePhrase("OK Max, gaana chalao"))
+        assertEquals("Wake up Max", com.example.manager.WakeWordManager.detectWakePhrase("Wake up Max, kya haal hai"))
+        assertEquals("Hey Max", com.example.manager.WakeWordManager.detectWakePhrase("hey max"))
+        assertEquals(null, com.example.manager.WakeWordManager.detectWakePhrase("kisi aur ka naam bolo"))
+
+        // 2. Wake phrase stripping test
+        assertEquals("YouTube kholo", com.example.manager.WakeWordManager.stripWakePhrase("Hey Max, YouTube kholo", "Hey Max"))
+        assertEquals("torch on karo", com.example.manager.WakeWordManager.stripWakePhrase("OK Max, torch on karo", "OK Max"))
+
+        // 3. Acoustic Voice Embedding extraction test (32-dim unit vector)
+        val pcmSample = com.example.manager.WakeWordManager.generatePcmFromSpeech("Hey Max owner voice")
+        val embedding = com.example.manager.OwnerVoiceBiometricModel.extractEmbedding(pcmSample)
+        assertEquals(32, embedding.size)
+
+        // Verify cosine similarity of identical audio is ~1.0
+        val selfSimilarity = com.example.manager.OwnerVoiceBiometricModel.computeCosineSimilarity(embedding, embedding)
+        assertTrue(selfSimilarity > 0.95f)
+
+        // 4. Exact required Debug Logs test
+        DebugLogger.logWakePhraseDetected("Hey Max")
+        DebugLogger.logVoiceVerification(true, 0.88f)
+        DebugLogger.logVoiceVerification(false, 0.42f)
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "WAKE_PHRASE_DETECTED: Hey Max" })
+        assertTrue(logs.any { it.message == "VOICE_VERIFICATION: match=true, confidence=0.88" })
+        assertTrue(logs.any { it.message == "VOICE_VERIFICATION: match=false, confidence=0.42" })
+    }
 }

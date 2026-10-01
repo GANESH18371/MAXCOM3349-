@@ -83,6 +83,7 @@ import com.example.ui.components.PermanentMemoryCard
 import com.example.ui.components.RemindersCard
 import com.example.ui.components.VoiceCloningCard
 import com.example.ui.components.VoiceSettingsCard
+import com.example.ui.components.WakeWordSettingsCard
 import com.example.ui.components.WeatherCard
 import com.example.ui.components.WhatsAppAutoReplyCard
 import com.example.ui.components.jarvis.JarvisArcReactor
@@ -422,6 +423,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     // Voice Cloning Card (Apni Khud Ki Awaaz)
                     VoiceCloningCard()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Wake-Word & Owner Biometrics Card
+                    WakeWordSettingsCard()
 
                     Spacer(modifier = Modifier.height(16.dp))
 

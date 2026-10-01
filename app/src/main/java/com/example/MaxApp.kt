@@ -9,6 +9,7 @@ class MaxApp : Application() {
         instance = this
         SecureApiKeyManager.init(this)
         com.example.manager.ClonedVoiceManager.init(this)
+        com.example.manager.WakeWordManager.init(this)
     }
 
     companion object {
