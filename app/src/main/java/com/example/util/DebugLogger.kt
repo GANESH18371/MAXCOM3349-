@@ -473,15 +473,14 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
-    fun logClonedVoiceStatus(enabled: Boolean, voiceId: String) {
-        val voiceSnippet = if (voiceId.length > 8) "${voiceId.take(8)}..." else voiceId
-        val logLine = "CLONED_VOICE_STATUS: enabled=$enabled, voice_id=$voiceSnippet"
+    fun logOfflineCloneStatus(enabled: Boolean, hasSample: Boolean, engine: String) {
+        val logLine = "OFFLINE_CLONE_STATUS: enabled=$enabled, sample=$hasSample, engine=$engine"
         safeLog(Log.INFO, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
 
-    fun logClonedVoiceSynthesis(success: Boolean, details: String = "") {
-        val logLine = "CLONED_VOICE_SYNTHESIS: success=$success${if (details.isNotBlank()) " ($details)" else ""}"
+    fun logOfflineCloneSynthesis(success: Boolean, details: String = "") {
+        val logLine = "OFFLINE_CLONE_SYNTHESIS: success=$success${if (details.isNotBlank()) " ($details)" else ""}"
         safeLog(if (success) Log.INFO else Log.WARN, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }

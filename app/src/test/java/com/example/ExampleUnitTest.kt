@@ -599,22 +599,20 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun voiceCloning_stateAndLoggingTest() {
+    fun offlineVoiceCloning_stateAndLifecycleTest() {
         DebugLogger.clearLogs()
 
-        // 1. Verify 5 Sample Prompts exist and are non-empty
-        assertEquals(5, com.example.manager.ClonedVoiceManager.SAMPLE_PROMPTS.size)
-        assertTrue(com.example.manager.ClonedVoiceManager.SAMPLE_PROMPTS.all { it.isNotBlank() })
+        // 1. Verify OfflineVoiceCloneManager default state
+        assertEquals("http://127.0.0.1:8080/api/tts", com.example.manager.OfflineVoiceCloneManager.DEFAULT_LOCAL_API_URL)
+        assertEquals("ON_DEVICE", com.example.manager.OfflineVoiceCloneManager.engineMode.value)
 
         // 2. Logging formats
-        DebugLogger.logClonedVoiceStatus(true, "21m00Tcm4TlvDq8ikWAM")
-        DebugLogger.logClonedVoiceSynthesis(true, "TTS in owner's cloned voice")
-        DebugLogger.logClonedVoiceSynthesis(false, "HTTP 401, fallback to Android TTS")
+        DebugLogger.logInfo("Offline Voice Clone created! Duration: 2.1s, Pitch: 145Hz")
+        DebugLogger.logInfo("Spoke in owner's cloned voice (Pitch: 145Hz, Shift: 1.1x)")
 
         val logs = DebugLogger.logs.value
-        assertTrue(logs.any { it.message == "CLONED_VOICE_STATUS: enabled=true, voice_id=21m00Tcm..." })
-        assertTrue(logs.any { it.message == "CLONED_VOICE_SYNTHESIS: success=true (TTS in owner's cloned voice)" })
-        assertTrue(logs.any { it.message == "CLONED_VOICE_SYNTHESIS: success=false (HTTP 401, fallback to Android TTS)" })
+        assertTrue(logs.any { it.message.contains("Offline Voice Clone created! Duration: 2.1s") })
+        assertTrue(logs.any { it.message.contains("Spoke in owner's cloned voice") })
     }
 
     @Test

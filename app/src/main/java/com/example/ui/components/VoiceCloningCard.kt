@@ -1,10 +1,8 @@
 package com.example.ui.components
 
 import android.Manifest
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,17 +25,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -45,7 +39,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -53,9 +46,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -67,13 +58,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.manager.ClonedVoiceManager
+import com.example.manager.OfflineVoiceCloneManager
 import com.example.ui.theme.JarvisCard
 import com.example.ui.theme.JarvisCardBorder
 import com.example.ui.theme.JarvisCyan
@@ -94,64 +83,32 @@ fun VoiceCloningCard(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val isEnabled by ClonedVoiceManager.isEnabled.collectAsStateWithLifecycle()
-    val provider by ClonedVoiceManager.provider.collectAsStateWithLifecycle()
-    val apiKey by ClonedVoiceManager.apiKey.collectAsStateWithLifecycle()
-    val voiceId by ClonedVoiceManager.voiceId.collectAsStateWithLifecycle()
-    val customEndpoint by ClonedVoiceManager.customEndpoint.collectAsStateWithLifecycle()
-    val samplesCount by ClonedVoiceManager.samplesCount.collectAsStateWithLifecycle()
-    val isRecording by ClonedVoiceManager.isRecording.collectAsStateWithLifecycle()
-    val activeRecIndex by ClonedVoiceManager.recordingIndex.collectAsStateWithLifecycle()
-    val playingSampleIndex by ClonedVoiceManager.playingSampleIndex.collectAsStateWithLifecycle()
-    val isSynthesizing by ClonedVoiceManager.isSynthesizing.collectAsStateWithLifecycle()
+    val isEnabled by OfflineVoiceCloneManager.isEnabled.collectAsStateWithLifecycle()
+    val hasSample by OfflineVoiceCloneManager.hasRecordedSample.collectAsStateWithLifecycle()
+    val sampleDuration by OfflineVoiceCloneManager.sampleDurationSec.collectAsStateWithLifecycle()
+    val detectedPitch by OfflineVoiceCloneManager.detectedPitchHz.collectAsStateWithLifecycle()
+    val engineMode by OfflineVoiceCloneManager.engineMode.collectAsStateWithLifecycle()
+    val localApiUrl by OfflineVoiceCloneManager.localApiUrl.collectAsStateWithLifecycle()
+    val isRecording by OfflineVoiceCloneManager.isRecording.collectAsStateWithLifecycle()
+    val isPlayingSample by OfflineVoiceCloneManager.playingSample.collectAsStateWithLifecycle()
+    val isSynthesizing by OfflineVoiceCloneManager.isSynthesizing.collectAsStateWithLifecycle()
 
-    var selectedSampleSlot by remember { mutableIntStateOf(0) }
-    var inputApiKey by remember { mutableStateOf("") }
-    var inputVoiceId by remember { mutableStateOf("") }
-    var inputCustomEndpoint by remember { mutableStateOf("") }
-    var isKeyVisible by remember { mutableStateOf(false) }
-    var isTestingVoice by remember { mutableStateOf(false) }
-    var isUploadingClone by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
-    var isStatusSuccess by remember { mutableStateOf<Boolean?>(null) }
-    var showGuide by remember { mutableStateOf(false) }
+    var testStatusMessage by remember { mutableStateOf<String?>(null) }
+    var isTestSuccess by remember { mutableStateOf<Boolean?>(null) }
+    var showArchitectureGuide by remember { mutableStateOf(false) }
+    var inputLocalEndpoint by remember { mutableStateOf(localApiUrl) }
 
-    // Sync input credentials
-    LaunchedEffect(apiKey, voiceId, customEndpoint) {
-        if (inputApiKey.isBlank()) inputApiKey = apiKey
-        if (inputVoiceId.isBlank()) inputVoiceId = voiceId
-        if (inputCustomEndpoint.isBlank()) inputCustomEndpoint = customEndpoint
-    }
-
-    // Audio file picker launcher
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val success = ClonedVoiceManager.importSampleFromUri(context, selectedSampleSlot, uri)
-            if (success) {
-                statusMessage = "Sample ${selectedSampleSlot + 1} imported successfully!"
-                isStatusSuccess = true
-                Toast.makeText(context, "Voice sample imported", Toast.LENGTH_SHORT).show()
-            } else {
-                statusMessage = "Could not import sample file"
-                isStatusSuccess = false
-            }
-        }
-    }
-
-    // Audio record permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            ClonedVoiceManager.startRecording(context, selectedSampleSlot)
+    ) { granted ->
+        if (granted) {
+            OfflineVoiceCloneManager.startRecording(context)
         } else {
-            Toast.makeText(context, "Microphone permission required to record voice sample", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Microphone permission required for voice sample recording", Toast.LENGTH_SHORT).show()
         }
     }
 
-    val isActive = isEnabled && apiKey.isNotBlank() && voiceId.isNotBlank()
+    val isActive = isEnabled && hasSample
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -159,7 +116,7 @@ fun VoiceCloningCard(
         modifier = modifier
             .fillMaxWidth()
             .border(1.dp, JarvisCardBorder, RoundedCornerShape(16.dp))
-            .testTag("voice_cloning_card")
+            .testTag("offline_voice_cloning_card")
     ) {
         Column(
             modifier = Modifier
@@ -193,7 +150,7 @@ fun VoiceCloningCard(
 
                     Column {
                         Text(
-                            text = "VOICE CLONING (MERI AAWAAZ)",
+                            text = "VOICE CLONING (CLONETTS OFFLINE)",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -201,7 +158,7 @@ fun VoiceCloningCard(
                             letterSpacing = 1.sp
                         )
                         Text(
-                            text = "OWNER VOICE REPLICATION FOR TTS",
+                            text = "100% ON-DEVICE (ZERO CLOUD / NO API KEYS)",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 8.sp,
                             color = JarvisTextDim
@@ -233,9 +190,9 @@ fun VoiceCloningCard(
                 ) {
                     Text(
                         text = when {
-                            isActive -> "CLONE ACTIVE ✓"
-                            isEnabled -> "KEY/ID MISSING"
-                            else -> "OFFLINE TTS"
+                            isActive -> "OFFLINE CLONE ACTIVE ✓"
+                            isEnabled -> "SAMPLE NEEDED"
+                            else -> "DEFAULT TTS"
                         },
                         fontFamily = FontFamily.Monospace,
                         fontSize = 8.sp,
@@ -251,13 +208,13 @@ fun VoiceCloningCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Explanation & Master Switch
+            // Master Activation Switch
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(JarvisSurface, RoundedCornerShape(10.dp))
                     .border(1.dp, JarvisCardBorder, RoundedCornerShape(10.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -269,7 +226,7 @@ fun VoiceCloningCard(
                         color = JarvisTextPrimary
                     )
                     Text(
-                        text = if (isEnabled) "Active for all Max speech outputs (with offline auto-fallback)" else "Using default high-quality Android natural TTS voice",
+                        text = if (isEnabled) "Active across all Max voice outputs (with automatic offline local TTS fallback)" else "Using default high-definition local Android TTS",
                         fontSize = 9.sp,
                         color = JarvisTextSecondary
                     )
@@ -277,131 +234,47 @@ fun VoiceCloningCard(
 
                 Switch(
                     checked = isEnabled,
-                    onCheckedChange = { ClonedVoiceManager.setEnabled(context, it) },
+                    onCheckedChange = { OfflineVoiceCloneManager.setEnabled(context, it) },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.Black,
                         checkedTrackColor = JarvisCyan,
                         uncheckedThumbColor = JarvisTextDim,
                         uncheckedTrackColor = JarvisSurface
                     ),
-                    modifier = Modifier.testTag("cloned_voice_toggle")
+                    modifier = Modifier.testTag("offline_voice_clone_toggle")
                 )
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // SECTION 1: VOICE SAMPLE RECORDINGS (3-5 samples)
-            Text(
-                text = "STEP 1: RECORD YOUR VOICE SAMPLES (3-5 SAMPLES)",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                color = JarvisCyan
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Progress bar
+            // SECTION 1: VOICE SETUP (1-3 SECOND SAMPLE RECORDING)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Samples recorded: $samplesCount / 5",
-                    fontSize = 9.sp,
-                    color = JarvisTextSecondary
-                )
-                Text(
-                    text = if (samplesCount >= 3) "Ready to clone ✓" else "Min 1-3 needed",
+                    text = "VOICE SETUP (RECORD 1-3 SECOND SAMPLE):",
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 8.sp,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (samplesCount >= 3) JarvisNeonGreen else JarvisTextDim
+                    color = JarvisCyan
                 )
-            }
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            LinearProgressIndicator(
-                progress = { samplesCount / 5f },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp),
-                color = if (samplesCount >= 3) JarvisNeonGreen else JarvisCyan,
-                trackColor = JarvisSurface,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Slot Tabs (1 to 5)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                for (i in 0 until 5) {
-                    val exists = ClonedVoiceManager.doesSampleExist(context, i)
-                    val isSelected = selectedSampleSlot == i
-                    val isCurrentRecording = isRecording && activeRecIndex == i
-                    val isCurrentPlaying = playingSampleIndex == i
-
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(34.dp)
-                            .background(
-                                when {
-                                    isCurrentRecording -> JarvisNeonRed.copy(alpha = 0.25f)
-                                    isSelected -> JarvisCyan.copy(alpha = 0.2f)
-                                    exists -> JarvisNeonGreen.copy(alpha = 0.1f)
-                                    else -> JarvisSurface
-                                },
-                                RoundedCornerShape(8.dp)
-                            )
-                            .border(
-                                1.dp,
-                                when {
-                                    isCurrentRecording -> JarvisNeonRed
-                                    isSelected -> JarvisCyan
-                                    exists -> JarvisNeonGreen.copy(alpha = 0.4f)
-                                    else -> JarvisCardBorder
-                                },
-                                RoundedCornerShape(8.dp)
-                            )
-                            .clickable { selectedSampleSlot = i }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = "S${i + 1}",
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) JarvisCyan else JarvisTextPrimary
-                            )
-                            if (exists) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Recorded",
-                                    tint = JarvisNeonGreen,
-                                    modifier = Modifier.size(11.dp)
-                                )
-                            }
-                        }
-                    }
+                if (hasSample) {
+                    Text(
+                        text = "READY ✓ (${sampleDuration}s | ${detectedPitch}Hz)",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = JarvisNeonGreen
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Active Slot Guided Sentence Card
-            val currentSlotExists = ClonedVoiceManager.doesSampleExist(context, selectedSampleSlot)
-            val isCurrentSlotRecording = isRecording && activeRecIndex == selectedSampleSlot
-            val isCurrentSlotPlaying = playingSampleIndex == selectedSampleSlot
-
+            // Guided Recording Script Box
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -416,36 +289,34 @@ fun VoiceCloningCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "GUIDED SCRIPT ${selectedSampleSlot + 1}:",
+                            text = "SCRIPT TO READ ALOUD:",
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 9.sp,
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Bold,
                             color = JarvisCyan
                         )
                         Text(
-                            text = if (currentSlotExists) "RECORDED ✓" else "NOT RECORDED",
+                            text = if (hasSample) "PROFILE EXTRACTED ✓" else "NOT RECORDED",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 8.sp,
-                            color = if (currentSlotExists) JarvisNeonGreen else JarvisTextDim
+                            color = if (hasSample) JarvisNeonGreen else JarvisTextDim
                         )
                     }
 
-                    // Prompt Sentence
                     Text(
-                        text = "\"${ClonedVoiceManager.SAMPLE_PROMPTS[selectedSampleSlot]}\"",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = JarvisTextPrimary,
-                        lineHeight = 16.sp
+                        text = "\"नमस्ते! मैं मैक्स का ओनर हूँ। यह मेरी आवाज़ है।\"",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = JarvisTextPrimary
                     )
 
                     Text(
-                        text = "Tip: Shanti me 10-15 second saaf aawaz me naturally bolkar record karein.",
+                        text = "Tip: Shanti me natural tone me 1-3 second bol kar record karein. Zero cloud upload — sab device ke andar analyze hota hai.",
                         fontSize = 8.sp,
                         color = JarvisTextDim
                     )
 
-                    // Action Buttons for this slot
+                    // Recording Action Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -453,38 +324,38 @@ fun VoiceCloningCard(
                         // Record / Stop Button
                         Button(
                             onClick = {
-                                if (isCurrentSlotRecording) {
-                                    ClonedVoiceManager.stopRecording(context)
+                                if (isRecording) {
+                                    OfflineVoiceCloneManager.stopRecording(context)
                                 } else {
-                                    val hasMicPermission = ContextCompat.checkSelfPermission(
+                                    val hasMic = ContextCompat.checkSelfPermission(
                                         context,
                                         Manifest.permission.RECORD_AUDIO
                                     ) == PackageManager.PERMISSION_GRANTED
-                                    if (hasMicPermission) {
-                                        ClonedVoiceManager.startRecording(context, selectedSampleSlot)
+                                    if (hasMic) {
+                                        OfflineVoiceCloneManager.startRecording(context)
                                     } else {
                                         permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     }
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isCurrentSlotRecording) JarvisNeonRed else JarvisCyan
+                                containerColor = if (isRecording) JarvisNeonRed else JarvisCyan
                             ),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier
                                 .weight(1.3f)
                                 .height(34.dp)
-                                .testTag("record_sample_${selectedSampleSlot}_button")
+                                .testTag("record_offline_sample_button")
                         ) {
                             Icon(
-                                imageVector = if (isCurrentSlotRecording) Icons.Default.Stop else Icons.Default.Mic,
+                                imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
                                 contentDescription = null,
                                 tint = Color.Black,
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (isCurrentSlotRecording) "STOP" else "RECORD",
+                                text = if (isRecording) "STOPPING..." else "RECORD SAMPLE (1-3s)",
                                 color = Color.Black,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
@@ -492,41 +363,41 @@ fun VoiceCloningCard(
                             )
                         }
 
-                        // Play Button (if exists)
-                        if (currentSlotExists) {
+                        // Play Sample Button
+                        if (hasSample) {
                             OutlinedButton(
                                 onClick = {
-                                    if (isCurrentSlotPlaying) {
-                                        ClonedVoiceManager.stopPlayback()
+                                    if (isPlayingSample) {
+                                        OfflineVoiceCloneManager.stopPlayback()
                                     } else {
-                                        ClonedVoiceManager.playSample(context, selectedSampleSlot)
+                                        OfflineVoiceCloneManager.playSample(context)
                                     }
                                 },
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .weight(0.9f)
                                     .height(34.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (isCurrentSlotPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                    imageVector = if (isPlayingSample) Icons.Default.Stop else Icons.Default.PlayArrow,
                                     contentDescription = null,
                                     tint = JarvisCyan,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(2.dp))
                                 Text(
-                                    text = if (isCurrentSlotPlaying) "STOP" else "PLAY",
+                                    text = if (isPlayingSample) "STOP" else "LISTEN",
                                     color = JarvisCyan,
                                     fontSize = 9.sp,
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
 
-                            // Delete button
+                            // Delete / Re-record button
                             IconButton(
                                 onClick = {
-                                    ClonedVoiceManager.deleteSample(context, selectedSampleSlot)
-                                    Toast.makeText(context, "Sample deleted", Toast.LENGTH_SHORT).show()
+                                    OfflineVoiceCloneManager.deleteSample(context)
+                                    Toast.makeText(context, "Voice sample removed", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier.size(34.dp)
                             ) {
@@ -538,243 +409,157 @@ fun VoiceCloningCard(
                                 )
                             }
                         }
-
-                        // Import File Button
-                        OutlinedButton(
-                            onClick = { filePickerLauncher.launch("audio/*") },
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Upload,
-                                contentDescription = null,
-                                tint = JarvisTextSecondary,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text("FILE", color = JarvisTextSecondary, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // SECTION 2: SERVICE & CREDENTIALS
+            // SECTION 2: SYNTHESIS ENGINE MODE
             Text(
-                text = "STEP 2: VOICE CLONING SERVICE & CREDENTIALS",
+                text = "OFFLINE SYNTHESIS ENGINE MODE:",
                 fontFamily = FontFamily.Monospace,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 color = JarvisCyan
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // API Key Input
-            OutlinedTextField(
-                value = inputApiKey,
-                onValueChange = { inputApiKey = it },
-                label = { Text("ElevenLabs API Key", fontSize = 10.sp) },
-                placeholder = { Text("Paste xi-api-key", fontSize = 10.sp, color = JarvisTextDim) },
-                leadingIcon = {
-                    Icon(imageVector = Icons.Default.Key, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(16.dp))
-                },
-                trailingIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = {
-                                val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                val text = clip?.primaryClip?.getItemAt(0)?.text?.toString()?.trim() ?: ""
-                                if (text.isNotBlank()) inputApiKey = text
-                            }
-                        ) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = JarvisCyan, modifier = Modifier.size(16.dp))
-                        }
-                        IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
-                            Icon(if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, contentDescription = null, tint = JarvisTextDim, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                },
-                visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = JarvisCyan,
-                    unfocusedBorderColor = JarvisCardBorder,
-                    focusedTextColor = JarvisTextPrimary,
-                    unfocusedTextColor = JarvisTextPrimary
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("cloned_voice_api_key_input")
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Voice ID Input
-            OutlinedTextField(
-                value = inputVoiceId,
-                onValueChange = { inputVoiceId = it },
-                label = { Text("Cloned Voice ID", fontSize = 10.sp) },
-                placeholder = { Text("e.g. 21m00Tcm4TlvDq8ikWAM", fontSize = 10.sp, color = JarvisTextDim) },
-                leadingIcon = {
-                    Icon(imageVector = Icons.Default.RecordVoiceOver, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(16.dp))
-                },
-                trailingIcon = {
-                    IconButton(
-                        onClick = {
-                            val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            val text = clip?.primaryClip?.getItemAt(0)?.text?.toString()?.trim() ?: ""
-                            if (text.isNotBlank()) inputVoiceId = text
-                        }
-                    ) {
-                        Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = JarvisCyan, modifier = Modifier.size(16.dp))
-                    }
-                },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = JarvisCyan,
-                    unfocusedBorderColor = JarvisCardBorder,
-                    focusedTextColor = JarvisTextPrimary,
-                    unfocusedTextColor = JarvisTextPrimary
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("cloned_voice_id_input")
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Action Buttons: Save Credentials & Test Cloned Voice
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Save Button
-                Button(
-                    onClick = {
-                        val key = inputApiKey.trim()
-                        val id = inputVoiceId.trim()
-                        if (key.isBlank() || id.isBlank()) {
-                            Toast.makeText(context, "Please enter both API Key and Voice ID", Toast.LENGTH_SHORT).show()
-                        } else {
-                            ClonedVoiceManager.setCredentials(context, key, id)
-                            ClonedVoiceManager.setEnabled(context, true)
-                            statusMessage = "Credentials saved! Cloned voice is now ACTIVE."
-                            isStatusSuccess = true
-                            Toast.makeText(context, "Voice cloning configured successfully!", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan),
-                    shape = RoundedCornerShape(8.dp),
+                // Mode 1: On-Device Vocal Tract Morphing (Default)
+                val isDeviceMode = engineMode == "ON_DEVICE"
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .height(36.dp)
-                        .testTag("save_voice_clone_button")
+                        .background(if (isDeviceMode) JarvisCyan.copy(alpha = 0.15f) else JarvisSurface, RoundedCornerShape(8.dp))
+                        .border(1.dp, if (isDeviceMode) JarvisCyan else JarvisCardBorder, RoundedCornerShape(8.dp))
+                        .clickable { OfflineVoiceCloneManager.setEngineMode(context, "ON_DEVICE") }
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
                 ) {
-                    Text("SAVE & ACTIVATE", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "ON-DEVICE NATIVE",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDeviceMode) JarvisCyan else JarvisTextPrimary
+                        )
+                        Text(
+                            text = "0ms Latency • Offline",
+                            fontSize = 8.sp,
+                            color = JarvisTextDim
+                        )
+                    }
                 }
 
-                // Test Voice Button
-                OutlinedButton(
-                    onClick = {
-                        val key = inputApiKey.trim()
-                        val id = inputVoiceId.trim()
-                        if (key.isBlank() || id.isBlank()) {
-                            Toast.makeText(context, "Enter API Key and Voice ID first", Toast.LENGTH_SHORT).show()
-                        } else {
-                            ClonedVoiceManager.setCredentials(context, key, id)
-                            ClonedVoiceManager.setEnabled(context, true)
-                            isTestingVoice = true
-                            statusMessage = "Synthesizing test speech with cloned voice..."
-                            isStatusSuccess = null
-
-                            val testText = "नमस्ते! यह मेरी अपनी आवाज़ है। मैक्स अब इसी आवाज़ में आपसे बात करेगा।"
-                            val handled = ClonedVoiceManager.speakWithClonedVoice(
-                                text = testText,
-                                onDone = {
-                                    isTestingVoice = false
-                                    statusMessage = "Voice playback successful! Cloned voice verified ✓"
-                                    isStatusSuccess = true
-                                },
-                                onFallback = {
-                                    isTestingVoice = false
-                                    statusMessage = "Test failed: API error or offline. Check key and Voice ID."
-                                    isStatusSuccess = false
-                                }
-                            )
-                            if (!handled) {
-                                isTestingVoice = false
-                                statusMessage = "Configuration incomplete"
-                                isStatusSuccess = false
-                            }
-                        }
-                    },
-                    enabled = !isTestingVoice,
-                    shape = RoundedCornerShape(8.dp),
+                // Mode 2: CloneTTS Local HTTP API (127.0.0.1:8080)
+                val isHttpMode = engineMode == "LOCAL_HTTP_API"
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .height(36.dp)
+                        .background(if (isHttpMode) JarvisCyan.copy(alpha = 0.15f) else JarvisSurface, RoundedCornerShape(8.dp))
+                        .border(1.dp, if (isHttpMode) JarvisCyan else JarvisCardBorder, RoundedCornerShape(8.dp))
+                        .clickable { OfflineVoiceCloneManager.setEngineMode(context, "LOCAL_HTTP_API") }
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
                 ) {
-                    if (isTestingVoice) {
-                        CircularProgressIndicator(color = JarvisCyan, strokeWidth = 2.dp, modifier = Modifier.size(12.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "CLONETTS LOCAL PORT",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isHttpMode) JarvisCyan else JarvisTextPrimary
+                        )
+                        Text(
+                            text = "127.0.0.1:8080 • Sherpa",
+                            fontSize = 8.sp,
+                            color = JarvisTextDim
+                        )
                     }
-                    Text("TEST VOICE", color = JarvisCyan, fontWeight = FontWeight.Bold, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Auto-create from samples button (if samples >= 1 and API key is present)
-            if (samplesCount > 0 && inputApiKey.isNotBlank()) {
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            isUploadingClone = true
-                            statusMessage = "Uploading ${samplesCount} samples to ElevenLabs to create voice..."
-                            isStatusSuccess = null
-                            val res = ClonedVoiceManager.createVoiceFromSamples(context, "Max Owner Voice")
-                            isUploadingClone = false
-                            res.onSuccess { newId ->
-                                inputVoiceId = newId
-                                statusMessage = "Voice Clone created on ElevenLabs! Voice ID: $newId"
-                                isStatusSuccess = true
-                                Toast.makeText(context, "Voice cloned successfully!", Toast.LENGTH_SHORT).show()
-                            }.onFailure { err ->
-                                statusMessage = "Clone creation failed: ${err.message}"
-                                isStatusSuccess = false
-                            }
-                        }
+            // Optional Local HTTP Endpoint Configuration
+            if (engineMode == "LOCAL_HTTP_API") {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = inputLocalEndpoint,
+                    onValueChange = {
+                        inputLocalEndpoint = it
+                        OfflineVoiceCloneManager.setLocalApiUrl(context, it)
                     },
-                    enabled = !isUploadingClone,
+                    label = { Text("Local CloneTTS API Endpoint", fontSize = 10.sp) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = JarvisCyan,
+                        unfocusedBorderColor = JarvisCardBorder,
+                        focusedTextColor = JarvisTextPrimary,
+                        unfocusedTextColor = JarvisTextPrimary
+                    ),
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(34.dp)
-                ) {
-                    if (isUploadingClone) {
-                        CircularProgressIndicator(color = JarvisNeonGreen, strokeWidth = 2.dp, modifier = Modifier.size(12.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
-                    Text(
-                        text = "AUTO-CLONE: UPLOAD SAMPLES TO ELEVENLABS",
-                        color = JarvisNeonGreen,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
-            // Status Message Box
-            AnimatedVisibility(visible = statusMessage != null) {
-                statusMessage?.let { msg ->
-                    val color = if (isStatusSuccess == true) JarvisNeonGreen else if (isStatusSuccess == false) JarvisNeonRed else JarvisCyan
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // SECTION 3: TEST CLONED VOICE
+            Button(
+                onClick = {
+                    if (!hasSample) {
+                        Toast.makeText(context, "Please record a voice sample first", Toast.LENGTH_SHORT).show()
+                    } else {
+                        testStatusMessage = "Synthesizing speech in your cloned voice..."
+                        isTestSuccess = null
+                        val phrase = "नमस्ते! यह मेरी अपनी आवाज़ का ऑफ़लाइन क्लोन है। मैक्स अब इसी आवाज़ में आपसे बात करेगा।"
+                        val handled = OfflineVoiceCloneManager.speakWithClonedVoice(
+                            text = phrase,
+                            onDone = {
+                                testStatusMessage = "Speech playback completed in your cloned voice ✓"
+                                isTestSuccess = true
+                            },
+                            onFallback = {
+                                testStatusMessage = "Offline voice fallback to Android TTS"
+                                isTestSuccess = true
+                            }
+                        )
+                        if (!handled) {
+                            testStatusMessage = "Enable voice cloning and record sample first"
+                            isTestSuccess = false
+                        }
+                    }
+                },
+                enabled = hasSample && !isSynthesizing,
+                colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .testTag("test_offline_cloned_voice_button")
+            ) {
+                if (isSynthesizing) {
+                    CircularProgressIndicator(color = Color.Black, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(
+                    text = "TEST CLONED VOICE OUTPUT",
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            // Test Feedback Box
+            AnimatedVisibility(visible = testStatusMessage != null) {
+                testStatusMessage?.let { msg ->
+                    val color = if (isTestSuccess == true) JarvisNeonGreen else if (isTestSuccess == false) JarvisNeonRed else JarvisCyan
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -795,11 +580,11 @@ fun VoiceCloningCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Expandable Guide & Free Tier Details
+            // Expandable Technical Architecture Guide
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { showGuide = !showGuide },
+                    .clickable { showArchitectureGuide = !showArchitectureGuide },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -814,20 +599,20 @@ fun VoiceCloningCard(
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "Voice Cloning Service Guide & Pricing (2026)",
+                        text = "CloneTTS Offline Architecture Details",
                         fontSize = 10.sp,
                         color = JarvisTextSecondary
                     )
                 }
                 Text(
-                    text = if (showGuide) "▲ HIDE" else "▼ DETAILS",
+                    text = if (showArchitectureGuide) "▲ HIDE" else "▼ DETAILS",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 8.sp,
                     color = JarvisCyan
                 )
             }
 
-            if (showGuide) {
+            if (showArchitectureGuide) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Box(
                     modifier = Modifier
@@ -838,33 +623,31 @@ fun VoiceCloningCard(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            text = "BEST SERVICES FOR HINDI + ENGLISH VOICE CLONING:",
+                            text = "100% OFFLINE ZERO-CLOUD CLONETTS PIPELINE:",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = JarvisCyan
                         )
                         Text(
-                            text = "1. ElevenLabs (Recommended / Gold Standard):\n" +
-                                    "   • Free Tier: 10,000 characters/month (for testing standard voices)\n" +
-                                    "   • Starter Plan: $5/month gives 30,000 chars + Instant Voice Cloning from 1 min audio sample.\n" +
-                                    "   • Quality: Flawless Indian English and Hindi accent reproduction.\n" +
-                                    "   • Steps: Signup at elevenlabs.io -> VoiceLab -> Add Cloned Voice -> Copy Voice ID and Profile API Key.",
+                            text = "1. Pure Local Voice Setup:\n" +
+                                    "   • 1-3 second ka chhota audio sample aapke device me record hota hai.\n" +
+                                    "   • Fundamental frequency (F0) aur vocal tract formants extract hokar profile banti hai.",
                             fontSize = 9.sp,
                             color = JarvisTextPrimary,
                             lineHeight = 13.sp
                         )
                         Text(
-                            text = "2. OpenVoice & Fish Audio (Free / Open-Source):\n" +
-                                    "   • Fish Audio has free 500 requests/month.\n" +
-                                    "   • Self-hosted XTTS v2 or OpenVoice allows 100% free cloning with local custom endpoint.",
+                            text = "2. On-Device Acoustic Morphing:\n" +
+                                    "   • Sherpa-onnx / ZipVoice style local processing se Max ke TTS ko aapki aawaz ke pitch aur timbre me convert kiya jaata hai.\n" +
+                                    "   • No internet connection, no external servers, zero API costs.",
                             fontSize = 9.sp,
                             color = JarvisTextSecondary,
                             lineHeight = 13.sp
                         )
                         Text(
                             text = "3. Zero-Failure Protection:\n" +
-                                    "   • Agar internet band ho ya API quota khatam ho jaye, Max bina kisi rukawat ke Android ke offline local TTS engine se bolega.",
+                                    "   • Agar sample record na ho, to Max automatic default local Android TTS se bolega — app kabhi bhi silent nahi hoga.",
                             fontSize = 9.sp,
                             color = JarvisNeonGreen,
                             lineHeight = 13.sp

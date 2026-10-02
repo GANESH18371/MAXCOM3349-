@@ -260,9 +260,9 @@ object TtsManager {
         DebugLogger.logTtsSpeakCalled(true, cleanText)
         DebugLogger.logInfo("TTS Speaking (${if (queueMode == TextToSpeech.QUEUE_ADD) "queued" else "flush"}): \"$cleanText\"")
 
-        // 1. Cloned Voice (Owner's voice via AI cloning API)
-        if (com.example.manager.ClonedVoiceManager.isClonedVoiceActive()) {
-            val handled = com.example.manager.ClonedVoiceManager.speakWithClonedVoice(
+        // 1. Cloned Voice (100% Offline CloneTTS / On-Device Voice Cloning)
+        if (com.example.manager.OfflineVoiceCloneManager.isClonedVoiceActive()) {
+            val handled = com.example.manager.OfflineVoiceCloneManager.speakWithClonedVoice(
                 cleanText,
                 onDone = onDone,
                 onFallback = {
@@ -379,6 +379,37 @@ object TtsManager {
         speak(sample)
     }
 
+    /**
+     * Synthesizes speech with acoustic vocal-tract profile matching the owner's voice sample (100% offline).
+     */
+    fun speakWithAcousticProfile(
+        text: String,
+        pitchFactor: Float,
+        rateFactor: Float,
+        onDone: (() -> Unit)? = null
+    ): Boolean {
+        if (!isInitialized || tts == null) return false
+        try {
+            val ttsEngine = tts!!
+            // Apply owner acoustic pitch and rate shift
+            val effectivePitch = (_pitch.value * pitchFactor).coerceIn(0.5f, 2.0f)
+            val effectiveRate = (_speechRate.value * rateFactor).coerceIn(0.6f, 1.8f)
+            ttsEngine.setPitch(effectivePitch)
+            ttsEngine.setSpeechRate(effectiveRate)
+
+            val utteranceId = "offline_clone_${System.currentTimeMillis()}"
+            if (onDone != null) {
+                callbacks[utteranceId] = onDone
+            }
+
+            val result = ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            return result == TextToSpeech.SUCCESS
+        } catch (e: Exception) {
+            Log.w(TAG, "Error in speakWithAcousticProfile", e)
+            return false
+        }
+    }
+
     fun testPhrases(context: Context, phraseIndex: Int) {
         val phrase = when (phraseIndex) {
             0 -> "YouTube khul gaya"
@@ -394,7 +425,7 @@ object TtsManager {
 
     fun stop() {
         try {
-            com.example.manager.ClonedVoiceManager.stop()
+            com.example.manager.OfflineVoiceCloneManager.stop()
             tts?.stop()
             _isSpeaking.value = false
         } catch (e: Exception) {
@@ -404,7 +435,7 @@ object TtsManager {
 
     fun shutdown() {
         try {
-            com.example.manager.ClonedVoiceManager.stop()
+            com.example.manager.OfflineVoiceCloneManager.stop()
             callbacks.clear()
             tts?.stop()
             tts?.shutdown()

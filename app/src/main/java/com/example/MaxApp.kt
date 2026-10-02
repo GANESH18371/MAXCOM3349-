@@ -8,7 +8,7 @@ class MaxApp : Application() {
         super.onCreate()
         instance = this
         SecureApiKeyManager.init(this)
-        com.example.manager.ClonedVoiceManager.init(this)
+        com.example.manager.OfflineVoiceCloneManager.init(this)
         com.example.manager.WakeWordManager.init(this)
     }
 
