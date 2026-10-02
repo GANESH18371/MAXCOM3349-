@@ -290,8 +290,9 @@ fun GeminiApiKeyCard(
                                         }.onFailure {
                                             val err = it.message ?: "Yeh API key invalid hai, sahi key daaliye"
                                             DebugLogger.logApiKeyValidationResult(false, err)
-                                            validationStatus = "Yeh API key invalid hai, sahi key daaliye"
+                                            validationStatus = err
                                             validationSuccess = false
+                                            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                                         }
                                     }
                                 },
@@ -343,10 +344,10 @@ fun GeminiApiKeyCard(
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                                         val clipData = clipboard?.primaryClip
                                         if (clipData != null && clipData.itemCount > 0) {
-                                            val text = clipData.getItemAt(0)?.text?.toString()?.trim() ?: ""
+                                            val text = clipData.getItemAt(0)?.text?.toString() ?: ""
                                             if (text.isNotBlank()) {
-                                                inputKey = text
-                                                Toast.makeText(context, "Pasted from clipboard", Toast.LENGTH_SHORT).show()
+                                                inputKey = SecureApiKeyManager.sanitizeApiKey(text)
+                                                Toast.makeText(context, "Pasted and cleaned from clipboard", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     }
@@ -392,11 +393,12 @@ fun GeminiApiKeyCard(
                     ) {
                         Button(
                             onClick = {
-                                val trimmed = inputKey.trim()
-                                if (trimmed.isBlank()) {
-                                    validationStatus = "Yeh API key invalid hai, sahi key daaliye"
+                                val cleaned = SecureApiKeyManager.sanitizeApiKey(inputKey)
+                                if (cleaned.isBlank()) {
+                                    val err = "Yeh API key invalid hai, sahi key daaliye - Key blank hai"
+                                    validationStatus = err
                                     validationSuccess = false
-                                    Toast.makeText(context, "Yeh API key invalid hai, sahi key daaliye", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
                                 } else {
                                     scope.launch {
                                         isValidating = true
@@ -404,7 +406,7 @@ fun GeminiApiKeyCard(
                                         validationSuccess = null
 
                                         // Real test API call to Gemini BEFORE saving!
-                                        val result = SecureApiKeyManager.validateAndSaveApiKey(context, trimmed)
+                                        val result = SecureApiKeyManager.validateAndSaveApiKey(context, cleaned)
                                         isValidating = false
 
                                         result.onSuccess {
@@ -413,9 +415,10 @@ fun GeminiApiKeyCard(
                                             validationSuccess = true
                                             Toast.makeText(context, "Configured ✓: Gemini API Key verified & saved!", Toast.LENGTH_SHORT).show()
                                         }.onFailure {
-                                            validationStatus = "Yeh API key invalid hai, sahi key daaliye"
+                                            val fullErr = it.message ?: "Yeh API key invalid hai, sahi key daaliye"
+                                            validationStatus = fullErr
                                             validationSuccess = false
-                                            Toast.makeText(context, "Yeh API key invalid hai, sahi key daaliye", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(context, fullErr, Toast.LENGTH_LONG).show()
                                         }
                                     }
                                 }

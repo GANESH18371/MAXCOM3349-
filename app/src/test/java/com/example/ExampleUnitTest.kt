@@ -589,6 +589,16 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun sanitizeApiKey_removesWhitespaceNewlinesQuotesAndControlChars() {
+        val messyKey = " \t\n\"AIzaSyAbcDef123456789_XYZ\"\uFEFF \r\n"
+        val cleaned = com.example.util.SecureApiKeyManager.sanitizeApiKey(messyKey)
+        assertEquals("AIzaSyAbcDef123456789_XYZ", cleaned)
+
+        val singleQuoteKey = "'AIzaSySampleKey_1234567890'"
+        assertEquals("AIzaSySampleKey_1234567890", com.example.util.SecureApiKeyManager.sanitizeApiKey(singleQuoteKey))
+    }
+
+    @Test
     fun voiceCloning_stateAndLoggingTest() {
         DebugLogger.clearLogs()
 
