@@ -649,4 +649,51 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "VOICE_VERIFICATION: match=true, confidence=0.88" })
         assertTrue(logs.any { it.message == "VOICE_VERIFICATION: match=false, confidence=0.42" })
     }
+
+    @Test
+    fun wakeWordDiagnosticLogs_test() {
+        DebugLogger.clearLogs()
+
+        // 1. WAKEWORD_SERVICE_STARTED
+        DebugLogger.logWakeWordServiceStarted(true)
+        DebugLogger.logWakeWordServiceStarted(false)
+
+        // 2. WAKEWORD_SERVICE_RUNNING
+        DebugLogger.logWakeWordServiceRunning(true, "12:34:56")
+        DebugLogger.logWakeWordServiceRunning(false, "12:35:00")
+
+        // 3. AUDIO_PERMISSION_STATUS
+        DebugLogger.logAudioPermissionStatus(true)
+        DebugLogger.logAudioPermissionStatus(false)
+
+        // 4. MIC_STREAM_ACTIVE
+        DebugLogger.logMicStreamActive(true)
+        DebugLogger.logMicStreamActive(false)
+
+        // 5. WAKEWORD_MODEL_LOADED
+        DebugLogger.logWakeWordModelLoaded(true, "none")
+        DebugLogger.logWakeWordModelLoaded(false, "openwakeword .onnx model asset not found in bundle")
+
+        // 6. WAKEWORD_DETECTION_ATTEMPT
+        DebugLogger.logWakeWordDetectionAttempt("rms_level=120, samples=1024")
+
+        // 7. BATTERY_OPTIMIZATION_STATUS
+        DebugLogger.logBatteryOptimizationStatus(true)
+        DebugLogger.logBatteryOptimizationStatus(false)
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STARTED: true" })
+        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STARTED: false" })
+        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_RUNNING: true, timestamp=12:34:56" })
+        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_RUNNING: false, timestamp=12:35:00" })
+        assertTrue(logs.any { it.message == "AUDIO_PERMISSION_STATUS: granted" })
+        assertTrue(logs.any { it.message == "AUDIO_PERMISSION_STATUS: denied" })
+        assertTrue(logs.any { it.message == "MIC_STREAM_ACTIVE: true" })
+        assertTrue(logs.any { it.message == "MIC_STREAM_ACTIVE: false" })
+        assertTrue(logs.any { it.message == "WAKEWORD_MODEL_LOADED: true, error=none" })
+        assertTrue(logs.any { it.message.startsWith("WAKEWORD_MODEL_LOADED: false, error=openwakeword") })
+        assertTrue(logs.any { it.message == "WAKEWORD_DETECTION_ATTEMPT: rms_level=120, samples=1024" })
+        assertTrue(logs.any { it.message == "BATTERY_OPTIMIZATION_STATUS: exempted" })
+        assertTrue(logs.any { it.message == "BATTERY_OPTIMIZATION_STATUS: not-exempted" })
+    }
 }

@@ -70,6 +70,7 @@ import com.example.manager.DefaultAssistantManager
 import com.example.manager.VoiceCommandManager
 import com.example.manager.VoiceState
 import com.example.service.MaxAccessibilityService
+import com.example.util.DebugLogger
 import com.example.ui.components.AntiTheftGuardCard
 import com.example.ui.components.AppLauncherSection
 import com.example.ui.components.BatteryReportCard
@@ -149,10 +150,22 @@ fun MainScreen(modifier: Modifier = Modifier) {
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
+        DebugLogger.logAudioPermissionStatus(isGranted)
         if (isGranted) {
             voiceManager.startListening()
+            if (com.example.manager.WakeWordManager.isEnabled.value) {
+                com.example.service.WakeWordBackgroundService.start(context)
+            }
         } else {
             Toast.makeText(context, "Microphone permission required for voice commands", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        DebugLogger.logAudioPermissionStatus(hasMic)
+        if (com.example.manager.WakeWordManager.isEnabled.value && hasMic) {
+            com.example.service.WakeWordBackgroundService.start(context)
         }
     }
 

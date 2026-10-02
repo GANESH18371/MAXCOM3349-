@@ -504,6 +504,75 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    // =========================================================================
+    // WAKE-WORD SYSTEM HEALTH & DIAGNOSTIC DEBUG LOGS (EXACT FORMAT)
+    // =========================================================================
+
+    /**
+     * 1. Exact format: "WAKEWORD_SERVICE_STARTED: <true/false>"
+     */
+    fun logWakeWordServiceStarted(started: Boolean) {
+        val logLine = "WAKEWORD_SERVICE_STARTED: $started"
+        safeLog(if (started) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 2. Exact format: "WAKEWORD_SERVICE_RUNNING: <true/false>, timestamp=<>"
+     */
+    fun logWakeWordServiceRunning(running: Boolean, timestamp: String = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())) {
+        val logLine = "WAKEWORD_SERVICE_RUNNING: $running, timestamp=$timestamp"
+        safeLog(Log.DEBUG, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 3. Exact format: "AUDIO_PERMISSION_STATUS: <granted/denied>"
+     */
+    fun logAudioPermissionStatus(granted: Boolean) {
+        val status = if (granted) "granted" else "denied"
+        val logLine = "AUDIO_PERMISSION_STATUS: $status"
+        safeLog(if (granted) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 4. Exact format: "MIC_STREAM_ACTIVE: <true/false>"
+     */
+    fun logMicStreamActive(active: Boolean) {
+        val logLine = "MIC_STREAM_ACTIVE: $active"
+        safeLog(if (active) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 5. Exact format: "WAKEWORD_MODEL_LOADED: <true/false>, error=<agar koi ho>"
+     */
+    fun logWakeWordModelLoaded(loaded: Boolean, error: String = "none") {
+        val logLine = "WAKEWORD_MODEL_LOADED: $loaded, error=$error"
+        safeLog(if (loaded) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 6. Exact format: "WAKEWORD_DETECTION_ATTEMPT: <details>"
+     */
+    fun logWakeWordDetectionAttempt(details: String = "evaluating_audio_frame") {
+        val logLine = "WAKEWORD_DETECTION_ATTEMPT: $details"
+        safeLog(Log.DEBUG, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 7. Exact format: "BATTERY_OPTIMIZATION_STATUS: <exempted/not-exempted>"
+     */
+    fun logBatteryOptimizationStatus(exempted: Boolean) {
+        val status = if (exempted) "exempted" else "not-exempted"
+        val logLine = "BATTERY_OPTIMIZATION_STATUS: $status"
+        safeLog(if (exempted) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

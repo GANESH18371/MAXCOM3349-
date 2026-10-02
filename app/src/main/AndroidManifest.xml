@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!-- Alarm & Reminders -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
@@ -119,6 +121,13 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- Foreground Wake-Word Listening Service with Diagnostics -->
+        <service
+            android:name=".service.WakeWordBackgroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <!-- Broadcast Receiver for Local Reminders and Alarms -->
         <receiver

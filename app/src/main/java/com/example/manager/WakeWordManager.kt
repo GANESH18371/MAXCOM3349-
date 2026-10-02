@@ -92,6 +92,21 @@ object WakeWordManager {
             .putBoolean(KEY_WAKE_ENABLED, enabled)
             .apply()
         DebugLogger.logInfo("WakeWordManager enabled set to $enabled")
+
+        if (enabled) {
+            val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                com.example.service.WakeWordBackgroundService.start(context)
+            } else {
+                DebugLogger.logAudioPermissionStatus(false)
+                DebugLogger.logWakeWordServiceStarted(false)
+            }
+        } else {
+            com.example.service.WakeWordBackgroundService.stop(context)
+        }
     }
 
     fun refreshEnrollmentStatus(context: Context) {
