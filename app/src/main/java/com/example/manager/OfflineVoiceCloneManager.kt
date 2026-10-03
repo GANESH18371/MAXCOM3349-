@@ -281,6 +281,9 @@ object OfflineVoiceCloneManager {
                 .putInt(KEY_PITCH_HZ, analyzedPitch)
                 .apply()
 
+            // Automatically extract owner biometric embedding from real WAV audio and save to owner_voice_embedding.bin!
+            OwnerVoiceBiometricModel.enrollFromWavFile(context, wavFile)
+
             DebugLogger.logInfo("Offline Voice Clone created! Duration: ${_sampleDurationSec.value}s, Pitch: ${analyzedPitch}Hz")
         }
     }
@@ -393,6 +396,10 @@ object OfflineVoiceCloneManager {
             .remove(KEY_SAMPLE_DURATION)
             .remove(KEY_PITCH_HZ)
             .apply()
+
+        // Clear biometric owner embedding
+        OwnerVoiceBiometricModel.clearEnrollment(context)
+
         DebugLogger.logInfo("Offline voice clone sample deleted")
     }
 

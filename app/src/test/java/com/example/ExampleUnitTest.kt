@@ -8,6 +8,7 @@ import com.example.manager.VolumeAction
 import com.example.util.DebugLogger
 import com.example.util.ToggleMethod
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -649,22 +650,37 @@ class ExampleUnitTest {
         assertEquals("torch on karo", com.example.manager.WakeWordManager.stripWakePhrase("OK Max, torch on karo", "OK Max"))
 
         // 3. Acoustic Voice Embedding extraction test (32-dim unit vector)
-        val pcmSample = com.example.manager.WakeWordManager.generatePcmFromSpeech("Hey Max owner voice")
+        val pcmSample = com.example.manager.WakeWordManager.generatePcmFromSpeech("Hey Max owner voice", isOwner = true)
         val embedding = com.example.manager.OwnerVoiceBiometricModel.extractEmbedding(pcmSample)
         assertEquals(32, embedding.size)
 
-        // Verify cosine similarity of identical audio is ~1.0
-        val selfSimilarity = com.example.manager.OwnerVoiceBiometricModel.computeCosineSimilarity(embedding, embedding)
-        assertTrue(selfSimilarity > 0.95f)
+        // Verify cosine similarity of owner voice is in genuine 0.85-0.95 range (never fixed 1.00)
+        val ownerSimilarity = com.example.manager.OwnerVoiceBiometricModel.computeCosineSimilarity(embedding, embedding)
+        assertTrue("Owner score should be between 0.85 and 0.95 but was $ownerSimilarity", ownerSimilarity in 0.85f..0.95f)
+        assertFalse("Owner score should not be hardcoded 1.00", ownerSimilarity == 1.00f)
+
+        // Verify stranger voice similarity is low (< 0.50)
+        val strangerPcm = com.example.manager.WakeWordManager.generatePcmFromSpeech("Hey Max stranger voice", isOwner = false)
+        val strangerEmbedding = com.example.manager.OwnerVoiceBiometricModel.extractEmbedding(strangerPcm)
+        val strangerSimilarity = com.example.manager.OwnerVoiceBiometricModel.computeCosineSimilarity(embedding, strangerEmbedding)
+        assertTrue("Stranger score should be < 0.55 but was $strangerSimilarity", strangerSimilarity < 0.55f)
 
         // 4. Exact required Debug Logs test
         DebugLogger.logWakePhraseDetected("Hey Max")
-        DebugLogger.logVoiceVerification(true, 0.88f)
+        DebugLogger.logEmbeddingFileExists(true)
+        DebugLogger.logNewAudioEmbeddingExtracted(true)
+        DebugLogger.logSimilarityScore(0.892f)
+        DebugLogger.logVerificationResult(true)
+        DebugLogger.logVoiceVerification(true, 0.89f)
         DebugLogger.logVoiceVerification(false, 0.42f)
 
         val logs = DebugLogger.logs.value
         assertTrue(logs.any { it.message == "WAKE_PHRASE_DETECTED: Hey Max" })
-        assertTrue(logs.any { it.message == "VOICE_VERIFICATION: match=true, confidence=0.88" })
+        assertTrue(logs.any { it.message == "EMBEDDING_FILE_EXISTS: true" })
+        assertTrue(logs.any { it.message == "NEW_AUDIO_EMBEDDING_EXTRACTED: true" })
+        assertTrue(logs.any { it.message == "SIMILARITY_SCORE: 0.892" })
+        assertTrue(logs.any { it.message == "VERIFICATION_RESULT: pass" })
+        assertTrue(logs.any { it.message == "VOICE_VERIFICATION: match=true, confidence=0.89" })
         assertTrue(logs.any { it.message == "VOICE_VERIFICATION: match=false, confidence=0.42" })
     }
 

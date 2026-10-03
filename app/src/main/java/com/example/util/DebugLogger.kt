@@ -522,6 +522,44 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "EMBEDDING_FILE_EXISTS: <true/false>"
+     */
+    fun logEmbeddingFileExists(exists: Boolean) {
+        val logLine = "EMBEDDING_FILE_EXISTS: $exists"
+        safeLog(if (exists) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "NEW_AUDIO_EMBEDDING_EXTRACTED: <true/false>"
+     */
+    fun logNewAudioEmbeddingExtracted(extracted: Boolean) {
+        val logLine = "NEW_AUDIO_EMBEDDING_EXTRACTED: $extracted"
+        safeLog(if (extracted) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "SIMILARITY_SCORE: <exact numeric value, NA hardcoded>"
+     */
+    fun logSimilarityScore(score: Float) {
+        val formatted = String.format(java.util.Locale.US, "%.3f", score)
+        val logLine = "SIMILARITY_SCORE: $formatted"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "VERIFICATION_RESULT: <threshold ke against pass/fail>"
+     */
+    fun logVerificationResult(passed: Boolean) {
+        val status = if (passed) "pass" else "fail"
+        val logLine = "VERIFICATION_RESULT: $status"
+        safeLog(if (passed) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     // =========================================================================
     // WAKE-WORD SYSTEM HEALTH & DIAGNOSTIC DEBUG LOGS (EXACT FORMAT)
     // =========================================================================

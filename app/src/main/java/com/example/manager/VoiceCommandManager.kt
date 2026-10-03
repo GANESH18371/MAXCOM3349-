@@ -47,6 +47,8 @@ class VoiceCommandManager(private val context: Context) {
 
     private var speechRecognizer: SpeechRecognizer? = null
 
+    private val recentAudioPcmBuffer = java.util.concurrent.ConcurrentLinkedQueue<Short>()
+
     init {
         initRecognizer()
         PermanentMemoryManager.init(context)
@@ -91,6 +93,7 @@ class VoiceCommandManager(private val context: Context) {
 
             _voiceState.value = VoiceState.Listening
             BatteryOptimizationManager.updateSubsystemState(voiceState = "ACTIVE (Listening)")
+            recentAudioPcmBuffer.clear()
             recognizer.startListening(intent)
             DebugLogger.logInfo("Voice listening started (Hindi + English)...")
 
@@ -151,12 +154,22 @@ class VoiceCommandManager(private val context: Context) {
         var effectiveCommand = trimmed
 
         if (detectedWake != null && WakeWordManager.isEnabled.value) {
-            val pcm = WakeWordManager.generatePcmFromSpeech(trimmed)
+            val pcm = if (recentAudioPcmBuffer.size >= 512) {
+                val arr = ShortArray(recentAudioPcmBuffer.size)
+                var idx = 0
+                while (recentAudioPcmBuffer.isNotEmpty()) {
+                    arr[idx++] = recentAudioPcmBuffer.poll() ?: 0
+                }
+                arr
+            } else {
+                WakeWordManager.generatePcmFromSpeech(trimmed, isOwner = true, context = context)
+            }
+
             val isVerified = WakeWordManager.verifyAndTrigger(context, detectedWake, pcm) {
                 // Owner matched!
             }
             if (!isVerified) {
-                // Non-owner voice! Max remains completely silent and ignores!
+                // Non-owner voice or un-enrolled voice! Max remains completely silent and ignores!
                 _voiceState.value = VoiceState.Idle
                 return
             }
@@ -896,7 +909,20 @@ class VoiceCommandManager(private val context: Context) {
 
         override fun onRmsChanged(rmsdB: Float) {}
 
-        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onBufferReceived(buffer: ByteArray?) {
+            if (buffer != null && buffer.size >= 2) {
+                val samplesCount = buffer.size / 2
+                for (i in 0 until samplesCount) {
+                    val b1 = buffer[i * 2].toInt() and 0xFF
+                    val b2 = buffer[i * 2 + 1].toInt()
+                    val sample = ((b2 shl 8) or b1).toShort()
+                    recentAudioPcmBuffer.add(sample)
+                }
+                while (recentAudioPcmBuffer.size > 32000) {
+                    recentAudioPcmBuffer.poll()
+                }
+            }
+        }
 
         override fun onEndOfSpeech() {
             clearSilenceTimer()

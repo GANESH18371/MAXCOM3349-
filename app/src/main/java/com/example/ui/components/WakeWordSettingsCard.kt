@@ -532,70 +532,126 @@ fun WakeWordSettingsCard(
             Spacer(modifier = Modifier.height(12.dp))
 
             // SECTION 3: TEST WAKE TRIGGER & BIOMETRIC VERIFICATION
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Test Wake Button (Simulate saying "Hey Max")
-                Button(
-                    onClick = {
-                        isTestingWakeWord = true
-                        testResultText = "Verifying speaker biometrics for 'Hey Max'..."
-                        isTestSuccess = null
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Test Owner Voice
+                    Button(
+                        onClick = {
+                            isTestingWakeWord = true
+                            testResultText = "Extracting biometric vector & verifying 'Hey Max' against owner embedding..."
+                            isTestSuccess = null
 
-                        scope.launch {
-                            delay(400)
-                            val pcm = WakeWordManager.generatePcmFromSpeech("Hey Max owner voice")
-                            val verified = WakeWordManager.verifyAndTrigger(context, "Hey Max", pcm) {
-                                // Owner matched!
+                            scope.launch {
+                                delay(350)
+                                val pcm = WakeWordManager.generatePcmFromSpeech("Hey Max", isOwner = true, context = context)
+                                val verified = WakeWordManager.verifyAndTrigger(context, "Hey Max", pcm) {
+                                    // Owner verified
+                                }
+                                isTestingWakeWord = false
+                                val score = WakeWordManager.lastConfidence.value
+                                val formattedScore = String.format(java.util.Locale.US, "%.3f", score)
+                                val thresholdPct = (thresholdSlider * 100).toInt()
+
+                                if (verified) {
+                                    testResultText = "OWNER MATCH CONFIRMED ✓! Activated! (Score: $formattedScore, Threshold: $thresholdPct%)"
+                                    isTestSuccess = true
+                                } else {
+                                    val enrolled = OwnerVoiceBiometricModel.isEnrolled(context)
+                                    testResultText = if (!enrolled) {
+                                        "REJECTED: No owner voice enrolled! 'owner_voice_embedding.bin' missing. Record sample first."
+                                    } else {
+                                        "REJECTED: Acoustic match failed (Score: $formattedScore, Required: $thresholdPct%)"
+                                    }
+                                    isTestSuccess = false
+                                }
                             }
-                            isTestingWakeWord = false
-                            val conf = (WakeWordManager.lastConfidence.value * 100).toInt()
-                            if (verified) {
-                                testResultText = "MATCH CONFIRMED! Beep/vibration triggered, Max activated! (Confidence: $conf%)"
-                                isTestSuccess = true
-                            } else {
-                                testResultText = "NON-OWNER VOICE: Ignored silently (Confidence: $conf%)"
-                                isTestSuccess = false
-                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                            .testTag("test_wake_word_button")
+                    ) {
+                        if (isTestingWakeWord) {
+                            CircularProgressIndicator(color = Color.Black, strokeWidth = 2.dp, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .weight(1.3f)
-                        .height(36.dp)
-                        .testTag("test_wake_word_button")
-                ) {
-                    if (isTestingWakeWord) {
-                        CircularProgressIndicator(color = Color.Black, strokeWidth = 2.dp, modifier = Modifier.size(12.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "TEST OWNER VOICE",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
                     }
-                    Text(
-                        text = "TEST 'HEY MAX' TRIGGER",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
 
-                // Reset Enrollment
-                OutlinedButton(
-                    onClick = {
-                        WakeWordManager.resetEnrollment(context)
-                        testResultText = "Enrollment cleared. Record phrases again to re-enroll."
-                        isTestSuccess = null
-                        Toast.makeText(context, "Fingerprint reset", Toast.LENGTH_SHORT).show()
-                    },
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .weight(0.7f)
-                        .height(36.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Reset", tint = JarvisTextSecondary, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Text("RESET", color = JarvisTextSecondary, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                    // Test Stranger Voice
+                    OutlinedButton(
+                        onClick = {
+                            isTestingWakeWord = true
+                            testResultText = "Extracting stranger voice vector & verifying against owner fingerprint..."
+                            isTestSuccess = null
+
+                            scope.launch {
+                                delay(350)
+                                val pcm = WakeWordManager.generatePcmFromSpeech("Hey Max", isOwner = false, context = context)
+                                val verified = WakeWordManager.verifyAndTrigger(context, "Hey Max", pcm) {
+                                    // Should not happen for stranger
+                                }
+                                isTestingWakeWord = false
+                                val score = WakeWordManager.lastConfidence.value
+                                val formattedScore = String.format(java.util.Locale.US, "%.3f", score)
+                                val thresholdPct = (thresholdSlider * 100).toInt()
+
+                                if (verified) {
+                                    testResultText = "SECURITY WARNING: Stranger matched (Score: $formattedScore)"
+                                    isTestSuccess = true
+                                } else {
+                                    testResultText = "STRANGER VOICE REJECTED ✗! Ignored silently (Score: $formattedScore, Below $thresholdPct%)"
+                                    isTestSuccess = false
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, JarvisNeonRed.copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                            .testTag("test_stranger_voice_button")
+                    ) {
+                        Text(
+                            text = "TEST STRANGER",
+                            color = JarvisNeonRed,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    // Reset Enrollment
+                    OutlinedButton(
+                        onClick = {
+                            WakeWordManager.resetEnrollment(context)
+                            testResultText = "Enrollment cleared. 'owner_voice_embedding.bin' removed."
+                            isTestSuccess = null
+                            Toast.makeText(context, "Fingerprint reset", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(0.6f)
+                            .height(36.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Reset", tint = JarvisTextSecondary, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("RESET", color = JarvisTextSecondary, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                    }
                 }
             }
 

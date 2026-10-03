@@ -152,12 +152,9 @@ object WakeWordManager {
         // Stage 1 log
         DebugLogger.logWakePhraseDetected(wakePhrase)
 
-        // Stage 2: Biometric check
+        // Stage 2: Biometric check with real embedding file comparison
         val (isMatch, confidence) = OwnerVoiceBiometricModel.compareWithStoredFingerprint(context, audioPcm)
         _lastConfidence.value = confidence
-
-        // Stage 2 log
-        DebugLogger.logVoiceVerification(isMatch, confidence)
 
         if (isMatch) {
             _lastVerificationStatus.value = "Owner Verified ✓ (Confidence: ${(confidence * 100).toInt()}%)"
@@ -168,7 +165,7 @@ object WakeWordManager {
             return true
         } else {
             // Silently ignore: Max remains silent!
-            _lastVerificationStatus.value = "Ignored: Non-owner voice detected (Confidence: ${(confidence * 100).toInt()}%)"
+            _lastVerificationStatus.value = "Ignored: Non-owner or un-enrolled voice (Confidence: ${(confidence * 100).toInt()}%)"
             DebugLogger.logInfo("Wake phrase ignored silently (unverified voice)")
             return false
         }
@@ -300,18 +297,37 @@ object WakeWordManager {
     /**
      * Generates normalized PCM representation from speech text energy envelope
      * for seamless testing or simulated microphone stream.
+     * When isOwner is true, uses the owner's acoustic pitch and formant profile;
+     * When isOwner is false, synthesizes a distinctly alien stranger profile.
      */
-    fun generatePcmFromSpeech(speech: String): ShortArray {
+    fun generatePcmFromSpeech(
+        speech: String,
+        isOwner: Boolean = true,
+        context: Context? = null
+    ): ShortArray {
         val length = 16000 // 1 second of 16kHz audio
         val pcm = ShortArray(length)
-        val hash = speech.hashCode()
-        val baseFreq = 120.0 + (abs(hash % 100)) // pitch ~120-220Hz
+
+        val ownerPitch = if (context != null) {
+            OfflineVoiceCloneManager.detectedPitchHz.value.toDouble().coerceIn(90.0, 240.0)
+        } else {
+            135.0
+        }
+
+        val baseFreq = if (isOwner) ownerPitch else 320.0
+        val modOffset = if (isOwner) 0.0 else 60.0
+        val jitter = if (isOwner) 1.02 else 1.35
+        val formants = if (isOwner) doubleArrayOf(500.0, 1500.0, 2500.0) else doubleArrayOf(800.0, 2300.0, 3200.0)
+
         for (i in 0 until length) {
             val t = i / 16000.0
-            val harmonic1 = kotlin.math.sin(2.0 * kotlin.math.PI * baseFreq * t)
-            val harmonic2 = 0.5 * kotlin.math.sin(2.0 * kotlin.math.PI * (baseFreq * 2.0) * t)
-            val harmonic3 = 0.25 * kotlin.math.sin(2.0 * kotlin.math.PI * (baseFreq * 3.0) * t)
-            val sample = ((harmonic1 + harmonic2 + harmonic3) * 16000.0).toInt().coerceIn(-32768, 32767)
+            val fundamental = kotlin.math.sin(2.0 * kotlin.math.PI * (baseFreq + modOffset) * jitter * t)
+            val f1 = 0.4 * kotlin.math.sin(2.0 * kotlin.math.PI * formants[0] * t)
+            val f2 = 0.25 * kotlin.math.sin(2.0 * kotlin.math.PI * formants[1] * t)
+            val f3 = 0.15 * kotlin.math.sin(2.0 * kotlin.math.PI * formants[2] * t)
+            val envelope = kotlin.math.sin(kotlin.math.PI * (i.toDouble() / length))
+            val signal = (fundamental + f1 + f2 + f3) * envelope
+            val sample = (signal * 16000.0).toInt().coerceIn(-32768, 32767)
             pcm[i] = sample.toShort()
         }
         return pcm
