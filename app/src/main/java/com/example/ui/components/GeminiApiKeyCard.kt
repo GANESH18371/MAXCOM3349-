@@ -93,6 +93,10 @@ fun GeminiApiKeyCard(
 
     val isConfigured = currentKey.isNotBlank()
 
+    LaunchedEffect(Unit) {
+        SecureApiKeyManager.getApiKey(context, "SettingsScreen")
+    }
+
     // Sync input when key changes
     LaunchedEffect(currentKey) {
         if (inputKey.isBlank()) {

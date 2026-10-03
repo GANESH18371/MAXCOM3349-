@@ -599,6 +599,24 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun apiKeyStandardizationAndReadLogging_test() {
+        DebugLogger.clearLogs()
+
+        // 1. Verify exact standardized key name is "gemini_api_key"
+        assertEquals("gemini_api_key", com.example.util.SecureApiKeyManager.KEY_GEMINI_API)
+
+        // 2. Test exact required debug log format: "API_KEY_READ_ATTEMPT: location=<>, found=<>"
+        DebugLogger.logApiKeyReadAttempt("VoiceComprehension", true)
+        DebugLogger.logApiKeyReadAttempt("WhatsAppAutoReply", true)
+        DebugLogger.logApiKeyReadAttempt("CameraSceneAnalysis", false)
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "API_KEY_READ_ATTEMPT: location=VoiceComprehension, found=true" })
+        assertTrue(logs.any { it.message == "API_KEY_READ_ATTEMPT: location=WhatsAppAutoReply, found=true" })
+        assertTrue(logs.any { it.message == "API_KEY_READ_ATTEMPT: location=CameraSceneAnalysis, found=false" })
+    }
+
+    @Test
     fun offlineVoiceCloning_stateAndLifecycleTest() {
         DebugLogger.clearLogs()
 

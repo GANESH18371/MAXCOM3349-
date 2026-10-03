@@ -473,6 +473,15 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "API_KEY_READ_ATTEMPT: location=<kaha se padhi ja rahi hai>, found=<true/false>"
+     */
+    fun logApiKeyReadAttempt(location: String, found: Boolean) {
+        val logLine = "API_KEY_READ_ATTEMPT: location=$location, found=$found"
+        safeLog(if (found) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logOfflineCloneStatus(enabled: Boolean, hasSample: Boolean, engine: String) {
         val logLine = "OFFLINE_CLONE_STATUS: enabled=$enabled, sample=$hasSample, engine=$engine"
         safeLog(Log.INFO, TAG, logLine)

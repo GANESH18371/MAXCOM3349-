@@ -39,7 +39,7 @@ object GeminiReplyService {
         .build()
 
     suspend fun generateAutoReply(sender: String, messageText: String): String = withContext(Dispatchers.IO) {
-        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance, "WhatsAppAutoReply")
 
         // Context info from active app / interactions
         val currentApp = AppContextManager.getCurrentApp()?.name
@@ -120,7 +120,7 @@ object GeminiReplyService {
      * Multimodal scene analysis via Gemini Vision API
      */
     suspend fun analyzeSceneImage(imageBytes: ByteArray): String = withContext(Dispatchers.IO) {
-        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance, "CameraSceneAnalysis")
 
         if (apiKey.isBlank()) {
             DebugLogger.logGeminiRequestSent(false, "API key missing or blank")
@@ -206,7 +206,7 @@ object GeminiReplyService {
         contextSummary: String,
         knownApps: List<String>
     ): GeminiComprehensionResult = withContext(Dispatchers.IO) {
-        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance, "VoiceComprehension")
 
         if (apiKey.isBlank()) {
             DebugLogger.logGeminiRequestSent(false, "API key missing or blank")
@@ -368,7 +368,7 @@ object GeminiReplyService {
         contextSummary: String,
         onSentenceChunk: (chunk: String, isFirstChunk: Boolean) -> Unit
     ): String = withContext(Dispatchers.IO) {
-        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance, "ContinuousConversation")
         if (apiKey.isBlank()) {
             val fallback = generateLocalConversationalFallback(userQuery)
             onSentenceChunk(fallback, true)
@@ -671,7 +671,7 @@ object GeminiReplyService {
      * Generates a warm, natural outgoing message for any messaging app based on topic or prompt.
      */
     suspend fun generateGenericOutgoingMessage(recipient: String, topic: String): String = withContext(Dispatchers.IO) {
-        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance, "GenericMessaging")
         if (apiKey.isBlank()) {
             return@withContext generateLocalOutgoingMessageFallback(recipient, topic)
         }
@@ -769,7 +769,7 @@ object GeminiReplyService {
         actionIntent: String,
         screenElements: List<String>
     ): String = withContext(Dispatchers.IO) {
-        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance)
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance, "ScreenActionResolution")
         if (apiKey.isBlank() || screenElements.isEmpty()) {
             return@withContext ""
         }

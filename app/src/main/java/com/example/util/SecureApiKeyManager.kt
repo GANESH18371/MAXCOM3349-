@@ -21,7 +21,13 @@ import java.util.concurrent.TimeUnit
 object SecureApiKeyManager {
     private const val TAG = "SecureApiKeyManager"
     private const val PREFS_FILE = "max_secure_api_prefs"
-    private const val KEY_GEMINI_API = "secure_gemini_api_key"
+
+    // Exact standardized key name across the entire app
+    const val KEY_GEMINI_API = "gemini_api_key"
+    private const val LEGACY_KEY_GEMINI_API = "secure_gemini_api_key"
+
+    @Volatile
+    private var cachedApiKey: String? = null
 
     private val _apiKeyFlow = MutableStateFlow("")
     val apiKeyFlow: StateFlow<String> = _apiKeyFlow.asStateFlow()
@@ -71,8 +77,9 @@ object SecureApiKeyManager {
      */
     fun init(context: Context) {
         if (initialized) return
-        val key = getApiKey(context)
+        val key = getApiKey(context, "AppStartup")
         _apiKeyFlow.value = key
+        cachedApiKey = key
         initialized = true
         if (key.isNotBlank()) {
             DebugLogger.logInfo("CENTRAL_API_KEY: Loaded successfully (Configured)")
@@ -84,39 +91,113 @@ object SecureApiKeyManager {
     /**
      * Centralized single source of truth for the Gemini API key across the entire application.
      * Priority:
-     * 1. User explicitly saved key in EncryptedSharedPreferences (Settings Screen).
-     * 2. Fallback to BuildConfig.GEMINI_API_KEY if present and valid.
+     * 1. In-memory volatile cache (fastest, immune to transient disk/keystore latency).
+     * 2. Standard and Encrypted SharedPreferences with unified key name "gemini_api_key".
+     * 3. Fallback to BuildConfig.GEMINI_API_KEY if present and valid.
+     *
+     * Emits exact debug log: "API_KEY_READ_ATTEMPT: location=<location>, found=<true/false>"
      */
-    fun getApiKey(context: Context): String {
-        try {
-            val prefs = getSecurePrefs(context)
-            val userKey = sanitizeApiKey(prefs.getString(KEY_GEMINI_API, "") ?: "")
-            if (userKey.isNotBlank()) {
-                return userKey
+    fun getApiKey(context: Context? = null, location: String = "general"): String {
+        // 1. Fast in-memory cache check
+        cachedApiKey?.let { cached ->
+            if (cached.isNotBlank()) {
+                DebugLogger.logApiKeyReadAttempt(location, true)
+                return cached
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error reading user API key from secure storage", e)
         }
 
-        // Fallback to BuildConfig if defined in build/env
+        val flowVal = _apiKeyFlow.value.trim()
+        if (flowVal.isNotBlank()) {
+            cachedApiKey = flowVal
+            DebugLogger.logApiKeyReadAttempt(location, true)
+            return flowVal
+        }
+
+        // 2. Read from persistent centralized storage
+        val ctx = context?.applicationContext ?: try { com.example.MaxApp.instance } catch (_: Throwable) { null }
+        if (ctx != null) {
+            val keyFromStorage = readKeyFromStorage(ctx)
+            if (keyFromStorage.isNotBlank()) {
+                cachedApiKey = keyFromStorage
+                _apiKeyFlow.value = keyFromStorage
+                DebugLogger.logApiKeyReadAttempt(location, true)
+                return keyFromStorage
+            }
+        }
+
+        // 3. Fallback to BuildConfig if defined in build/env
         val buildKey = try {
             sanitizeApiKey(BuildConfig.GEMINI_API_KEY)
         } catch (_: Throwable) {
             ""
         }
 
-        return if (buildKey.isNotBlank() && buildKey != "MY_GEMINI_API_KEY") {
+        val finalKey = if (buildKey.isNotBlank() && buildKey != "MY_GEMINI_API_KEY") {
             buildKey
         } else {
             ""
         }
+
+        val found = finalKey.isNotBlank()
+        if (found) {
+            cachedApiKey = finalKey
+            _apiKeyFlow.value = finalKey
+        }
+        DebugLogger.logApiKeyReadAttempt(location, found)
+        return finalKey
+    }
+
+    private fun readKeyFromStorage(ctx: Context): String {
+        // A. Check standard SharedPreferences with unified key name
+        try {
+            val stdPrefs = ctx.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            val key = sanitizeApiKey(stdPrefs.getString(KEY_GEMINI_API, "") ?: "")
+            if (key.isNotBlank()) return key
+
+            // Check legacy key and auto-migrate
+            val legacy = sanitizeApiKey(stdPrefs.getString(LEGACY_KEY_GEMINI_API, "") ?: "")
+            if (legacy.isNotBlank()) {
+                stdPrefs.edit().putString(KEY_GEMINI_API, legacy).remove(LEGACY_KEY_GEMINI_API).apply()
+                return legacy
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error reading from standard prefs: ${e.message}")
+        }
+
+        // B. Check EncryptedSharedPreferences with unified key name
+        try {
+            val encPrefs = getSecurePrefs(ctx)
+            val key = sanitizeApiKey(encPrefs.getString(KEY_GEMINI_API, "") ?: "")
+            if (key.isNotBlank()) {
+                // Mirror to stdPrefs for ultra-reliable cross-service retrieval
+                try {
+                    ctx.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+                        .edit().putString(KEY_GEMINI_API, key).commit()
+                } catch (_: Exception) {}
+                return key
+            }
+
+            val legacy = sanitizeApiKey(encPrefs.getString(LEGACY_KEY_GEMINI_API, "") ?: "")
+            if (legacy.isNotBlank()) {
+                encPrefs.edit().putString(KEY_GEMINI_API, legacy).remove(LEGACY_KEY_GEMINI_API).apply()
+                try {
+                    ctx.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+                        .edit().putString(KEY_GEMINI_API, legacy).commit()
+                } catch (_: Exception) {}
+                return legacy
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error reading from encrypted prefs: ${e.message}")
+        }
+
+        return ""
     }
 
     /**
      * Returns true if user has saved a key or build key is valid.
      */
     fun isKeyConfigured(context: Context): Boolean {
-        return getApiKey(context).isNotBlank()
+        return getApiKey(context, "KeyConfigCheck").isNotBlank()
     }
 
     /**
@@ -124,24 +205,48 @@ object SecureApiKeyManager {
      */
     fun isUserSuppliedKey(context: Context): Boolean {
         return try {
-            val prefs = getSecurePrefs(context)
-            val userKey = sanitizeApiKey(prefs.getString(KEY_GEMINI_API, "") ?: "")
-            userKey.isNotBlank()
+            val stdPrefs = context.applicationContext.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            val userKey = sanitizeApiKey(stdPrefs.getString(KEY_GEMINI_API, "") ?: "")
+            if (userKey.isNotBlank()) return true
+
+            val encPrefs = getSecurePrefs(context)
+            val encKey = sanitizeApiKey(encPrefs.getString(KEY_GEMINI_API, "") ?: "")
+            encKey.isNotBlank()
         } catch (_: Exception) {
             false
         }
     }
 
     /**
-     * Saves user's API key into EncryptedSharedPreferences after sanitization.
+     * Saves user's API key into centralized storage after sanitization.
+     * Uses synchronous .commit() to ensure instant cross-thread availability.
      */
     fun saveApiKey(context: Context, rawKey: String): Boolean {
         val sanitized = sanitizeApiKey(rawKey)
+        val ctx = context.applicationContext
         return try {
-            val prefs = getSecurePrefs(context)
-            prefs.edit().putString(KEY_GEMINI_API, sanitized).apply()
+            cachedApiKey = sanitized
             _apiKeyFlow.value = sanitized
-            DebugLogger.logInfo("CENTRAL_API_KEY: User key saved securely to EncryptedSharedPreferences")
+
+            // Write to standard private SharedPreferences with synchronous .commit()
+            val stdPrefs = ctx.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            stdPrefs.edit()
+                .putString(KEY_GEMINI_API, sanitized)
+                .remove(LEGACY_KEY_GEMINI_API)
+                .commit()
+
+            // Also write to EncryptedSharedPreferences
+            try {
+                val encPrefs = getSecurePrefs(ctx)
+                encPrefs.edit()
+                    .putString(KEY_GEMINI_API, sanitized)
+                    .remove(LEGACY_KEY_GEMINI_API)
+                    .apply()
+            } catch (e: Exception) {
+                Log.w(TAG, "Encrypted prefs write warning: ${e.message}")
+            }
+
+            DebugLogger.logInfo("CENTRAL_API_KEY: User key saved securely to centralized storage (key: $KEY_GEMINI_API)")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save user API key", e)
@@ -151,15 +256,32 @@ object SecureApiKeyManager {
     }
 
     /**
-     * Deletes user's API key from EncryptedSharedPreferences.
+     * Deletes user's API key from centralized storage.
      */
     fun clearApiKey(context: Context): Boolean {
+        val ctx = context.applicationContext
         return try {
-            val prefs = getSecurePrefs(context)
-            prefs.edit().remove(KEY_GEMINI_API).apply()
-            val fallback = getApiKey(context)
+            cachedApiKey = null
+            _apiKeyFlow.value = ""
+
+            val stdPrefs = ctx.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            stdPrefs.edit()
+                .remove(KEY_GEMINI_API)
+                .remove(LEGACY_KEY_GEMINI_API)
+                .commit()
+
+            try {
+                val encPrefs = getSecurePrefs(ctx)
+                encPrefs.edit()
+                    .remove(KEY_GEMINI_API)
+                    .remove(LEGACY_KEY_GEMINI_API)
+                    .apply()
+            } catch (_: Exception) {}
+
+            val fallback = getApiKey(ctx, "ClearFallback")
             _apiKeyFlow.value = fallback
-            DebugLogger.logInfo("CENTRAL_API_KEY: User key cleared from secure storage")
+            cachedApiKey = if (fallback.isNotBlank()) fallback else null
+            DebugLogger.logInfo("CENTRAL_API_KEY: User key cleared from centralized storage")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear API key", e)
