@@ -533,17 +533,17 @@ object AntiTheftManager {
             val name = if (foundName.isNotBlank()) foundName else "Emergency Contact"
             setTrustedContact(context, name, phoneNumber)
             val msg = "इमरजेंसी कॉन्टैक्ट $phoneNumber सेट कर दिया गया है."
-            TtsManager.speak(msg)
+            TtsManager.speakIfVoiceReady(msg, caller = "AntiTheft")
             return Pair(true, "Trusted contact saved: $name ($phoneNumber)")
         } else if (digits.length >= 7) {
             val phoneNumber = digits
             setTrustedContact(context, "Emergency Contact", phoneNumber)
             val msg = "इमरजेंसी कॉन्टैक्ट $phoneNumber सेट कर दिया गया है."
-            TtsManager.speak(msg)
+            TtsManager.speakIfVoiceReady(msg, caller = "AntiTheft")
             return Pair(true, "Trusted contact saved: $phoneNumber")
         } else {
             val msg = "कृपया सही 10 अंकों का मोबाइल नंबर बोलें. जैसे 'मेरा इमरजेंसी कॉन्टैक्ट 9876543210 है'."
-            TtsManager.speak(msg)
+            TtsManager.speakIfVoiceReady(msg, caller = "AntiTheft")
             return Pair(false, msg)
         }
     }

@@ -245,38 +245,72 @@ object TtsManager {
      * - Hardware toggles & App launcher confirmations
      * - Long term memory recall & storage confirmations
      */
-    fun speak(text: String, onDone: (() -> Unit)? = null) {
-        speak(text, TextToSpeech.QUEUE_FLUSH, onDone)
-    }
-
-    fun speak(text: String, queueMode: Int, onDone: (() -> Unit)? = null) {
+    /**
+     * CENTRAL SINGLE-SOURCE-OF-TRUTH TTS GATE:
+     * 1. Checks if authentic voice cloning profile exists (real recorded sample, not default/fallback).
+     * 2. If YES -> Synthesizes using the cloned voice.
+     * 3. If NO -> Stays SILENT, logs & displays short Toast: "Voice-cloning setup pending".
+     *
+     * Emits exact debug log:
+     * "TTS_GATE_CHECK: voice_profile_exists=<true/false>, caller=<kaunsa feature>, action=<speak/skip>"
+     */
+    fun speakIfVoiceReady(
+        text: String,
+        caller: String = "general",
+        queueMode: Int = TextToSpeech.QUEUE_FLUSH,
+        onDone: (() -> Unit)? = null
+    ) {
         val cleanText = sanitizeForSpeech(text)
         if (cleanText.isBlank()) {
-            DebugLogger.logTtsSpeakCalled(false, "")
             onDone?.let { mainHandler.post { it.invoke() } }
             return
         }
 
-        DebugLogger.logTtsSpeakCalled(true, cleanText)
-        DebugLogger.logInfo("TTS Speaking (${if (queueMode == TextToSpeech.QUEUE_ADD) "queued" else "flush"}): \"$cleanText\"")
+        val profileExists = com.example.manager.OfflineVoiceCloneManager.hasRealVoiceProfile(appContext)
 
-        // 1. Cloned Voice (100% Offline CloneTTS / On-Device Voice Cloning)
-        if (com.example.manager.OfflineVoiceCloneManager.isClonedVoiceActive()) {
+        if (profileExists) {
+            DebugLogger.logTtsGateCheck(profileExists = true, caller = caller, action = "speak")
+            DebugLogger.logTtsSpeakCalled(true, cleanText)
+            DebugLogger.logInfo("TTS Gate [$caller]: Speaking with Cloned Voice: \"$cleanText\"")
+
             val handled = com.example.manager.OfflineVoiceCloneManager.speakWithClonedVoice(
                 cleanText,
                 onDone = onDone,
                 onFallback = {
-                    // Fallback seamlessly to local Android TTS so app is NEVER silent
-                    speakWithDefaultTts(cleanText, queueMode, onDone)
+                    speakWithAcousticProfile(cleanText, 1.0f, 1.0f, onDone)
                 }
             )
-            if (handled) {
-                return
+            if (!handled) {
+                speakWithAcousticProfile(cleanText, 1.0f, 1.0f, onDone)
             }
-        }
+        } else {
+            // Voice profile does NOT exist yet!
+            // Remain completely silent.
+            DebugLogger.logTtsGateCheck(profileExists = false, caller = caller, action = "skip")
+            DebugLogger.logInfo("Voice-cloning setup pending (TTS suppressed for caller '$caller')")
 
-        // 2. Default high-quality local Android TTS
-        speakWithDefaultTts(cleanText, queueMode, onDone)
+            appContext?.let { ctx ->
+                mainHandler.post {
+                    try {
+                        android.widget.Toast.makeText(ctx, "Voice-cloning setup pending", android.widget.Toast.LENGTH_SHORT).show()
+                    } catch (_: Throwable) {}
+                }
+            }
+
+            // Immediately invoke callback so caller flow is never stalled
+            onDone?.let { mainHandler.post { it.invoke() } }
+        }
+    }
+
+    /**
+     * Backward-compatible delegation strictly routed through the Central TTS Gate.
+     */
+    fun speak(text: String, onDone: (() -> Unit)? = null) {
+        speakIfVoiceReady(text, caller = "general", queueMode = TextToSpeech.QUEUE_FLUSH, onDone = onDone)
+    }
+
+    fun speak(text: String, queueMode: Int, onDone: (() -> Unit)? = null) {
+        speakIfVoiceReady(text, caller = "general", queueMode = queueMode, onDone = onDone)
     }
 
     private fun speakWithDefaultTts(cleanText: String, queueMode: Int, onDone: (() -> Unit)? = null) {

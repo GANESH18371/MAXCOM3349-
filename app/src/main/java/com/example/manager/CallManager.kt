@@ -195,7 +195,7 @@ object CallManager {
 
         // 2. Announce via TTS in Hindi: "Aapko [naam/number] ki call aa rahi hai"
         val announcementText = "आपको $callerDisplayName की कॉल आ रही है."
-        TtsManager.speak(announcementText, onDone = {
+        TtsManager.speakIfVoiceReady(announcementText, caller = "CallAnnounce", onDone = {
             // 3. Required debug log: "CALL_ANNOUNCE: TTS spoken"
             DebugLogger.logCallAnnounce()
 
@@ -342,7 +342,7 @@ object CallManager {
                 timestamp = timeStr,
                 details = if (answered) "Call answered successfully" else "Answer triggered (Telecom/Simulation)"
             )
-            TtsManager.speak("कॉल रिसीव कर ली गई है.")
+            TtsManager.speakIfVoiceReady("कॉल रिसीव कर ली गई है.", caller = "CallAnnounce")
 
         } else if (isRejectCommand(lower)) {
             stopVoiceListening()
@@ -358,7 +358,7 @@ object CallManager {
                 timestamp = timeStr,
                 details = if (rejected) "Call rejected successfully" else "Reject triggered (Telecom/Simulation)"
             )
-            TtsManager.speak("कॉल रिजेक्ट कर दी गई है.")
+            TtsManager.speakIfVoiceReady("कॉल रिजेक्ट कर दी गई है.", caller = "CallAnnounce")
         }
     }
 

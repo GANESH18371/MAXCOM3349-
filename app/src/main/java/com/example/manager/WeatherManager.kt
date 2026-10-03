@@ -92,7 +92,7 @@ object WeatherManager {
     ) {
         if (!hasLocationPermission(context)) {
             DebugLogger.logInfo("Location permission required for weather")
-            TtsManager.speak("मौसम जानने के लिए लोकेशन परमिशन ज़रूरी है. कृपया स्क्रीन पर परमिशन दें.")
+            TtsManager.speakIfVoiceReady("मौसम जानने के लिए लोकेशन परमिशन ज़रूरी है. कृपया स्क्रीन पर परमिशन दें.", caller = "Weather")
             onPermissionNeeded?.invoke()
             onComplete?.invoke(false, "Location permission missing")
             return
@@ -141,14 +141,14 @@ object WeatherManager {
                 _isLoading.value = false
                 DebugLogger.logWeatherApiCall(false, "SecurityException: Location permission denied")
                 val msg = "Location permission ki zaroorat hai."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "Weather")
                 onComplete?.invoke(false, msg)
             } catch (e: Exception) {
                 _isLoading.value = false
                 Log.e(TAG, "Unexpected error getting location", e)
                 DebugLogger.logWeatherApiCall(false, e.message ?: "Unknown error")
                 val msg = "Mausam janne me samasya aayi."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "Weather")
                 onComplete?.invoke(false, msg)
             }
         }
@@ -179,7 +179,7 @@ object WeatherManager {
                 // Required exact log: "WEATHER_API_CALL: success/fail"
                 DebugLogger.logWeatherApiCall(false, "HTTP ${response.code}")
                 val errorMsg = "Mausam server se jankari nahi mil paayi."
-                TtsManager.speak(errorMsg)
+                TtsManager.speakIfVoiceReady(errorMsg, caller = "Weather")
                 onComplete?.invoke(false, errorMsg)
                 return
             }
@@ -216,7 +216,7 @@ object WeatherManager {
                 "आज आपके यहाँ तापमान $roundedTemp डिग्री सेल्सियस है और मौसम $weatherDescHindi है."
             }
 
-            TtsManager.speak(speechText)
+            TtsManager.speakIfVoiceReady(speechText, caller = "Weather")
             onComplete?.invoke(true, speechText)
 
         } catch (e: Exception) {
@@ -225,7 +225,7 @@ object WeatherManager {
             // Required exact log: "WEATHER_API_CALL: success/fail"
             DebugLogger.logWeatherApiCall(false, e.message ?: "Network error")
             val errorMsg = "Mausam prapt karne me samasya aayi. Kripya internet check karein."
-            TtsManager.speak(errorMsg)
+            TtsManager.speakIfVoiceReady(errorMsg, caller = "Weather")
             onComplete?.invoke(false, errorMsg)
         }
     }

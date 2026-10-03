@@ -344,7 +344,7 @@ fun CameraControlCard(
                             )
                         }
                         IconButton(
-                            onClick = { TtsManager.speak(lastAnalysis ?: "") },
+                            onClick = { TtsManager.speakIfVoiceReady(lastAnalysis ?: "", caller = "CameraControlCard") },
                             modifier = Modifier.size(32.dp)
                         ) {
                             Icon(

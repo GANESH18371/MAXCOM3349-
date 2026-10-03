@@ -35,7 +35,7 @@ object ReminderScheduler {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
             if (alarmManager != null && !alarmManager.canScheduleExactAlarms()) {
                 DebugLogger.logInfo("Exact alarm permission missing on Android 12+; opening settings")
-                TtsManager.speak("Exact alarm permission required. Please allow in settings.")
+                TtsManager.speakIfVoiceReady("Exact alarm permission required. Please allow in settings.", caller = "Reminders")
                 Toast.makeText(
                     context,
                     "Please allow Exact Alarms permission for Max Assistant",

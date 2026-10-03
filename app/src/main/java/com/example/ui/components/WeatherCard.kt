@@ -280,7 +280,7 @@ fun WeatherCard(
                     IconButton(
                         onClick = {
                             val rounded = Math.round(info.temperature).toInt()
-                            TtsManager.speak("आज तापमान $rounded डिग्री सेल्सियस है और मौसम ${info.description} है.")
+                            TtsManager.speakIfVoiceReady("आज तापमान $rounded डिग्री सेल्सियस है और मौसम ${info.description} है.", caller = "WeatherCard")
                         },
                         modifier = Modifier
                             .size(40.dp)

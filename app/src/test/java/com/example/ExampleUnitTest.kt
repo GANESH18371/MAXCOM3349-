@@ -714,4 +714,21 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "BATTERY_OPTIMIZATION_STATUS: exempted" })
         assertTrue(logs.any { it.message == "BATTERY_OPTIMIZATION_STATUS: not-exempted" })
     }
+
+    @Test
+    fun ttsGateCheckLogging_test() {
+        DebugLogger.clearLogs()
+
+        // Exact required debug log format: "TTS_GATE_CHECK: voice_profile_exists=<true/false>, caller=<kaunsa feature>, action=<speak/skip>"
+        DebugLogger.logTtsGateCheck(profileExists = true, caller = "Weather", action = "speak")
+        DebugLogger.logTtsGateCheck(profileExists = false, caller = "AppLauncher", action = "skip")
+        DebugLogger.logTtsGateCheck(profileExists = true, caller = "VoiceComprehension", action = "speak")
+        DebugLogger.logTtsGateCheck(profileExists = false, caller = "WhatsAppAutoReply", action = "skip")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "TTS_GATE_CHECK: voice_profile_exists=true, caller=Weather, action=speak" })
+        assertTrue(logs.any { it.message == "TTS_GATE_CHECK: voice_profile_exists=false, caller=AppLauncher, action=skip" })
+        assertTrue(logs.any { it.message == "TTS_GATE_CHECK: voice_profile_exists=true, caller=VoiceComprehension, action=speak" })
+        assertTrue(logs.any { it.message == "TTS_GATE_CHECK: voice_profile_exists=false, caller=WhatsAppAutoReply, action=skip" })
+    }
 }

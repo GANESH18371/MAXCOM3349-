@@ -482,6 +482,15 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "TTS_GATE_CHECK: voice_profile_exists=<true/false>, caller=<kaunsa feature>, action=<speak/skip>"
+     */
+    fun logTtsGateCheck(profileExists: Boolean, caller: String, action: String) {
+        val logLine = "TTS_GATE_CHECK: voice_profile_exists=$profileExists, caller=$caller, action=$action"
+        safeLog(if (action == "speak") Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logOfflineCloneStatus(enabled: Boolean, hasSample: Boolean, engine: String) {
         val logLine = "OFFLINE_CLONE_STATUS: enabled=$enabled, sample=$hasSample, engine=$engine"
         safeLog(Log.INFO, TAG, logLine)

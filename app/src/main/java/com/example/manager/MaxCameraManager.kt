@@ -104,10 +104,10 @@ object MaxCameraManager {
                     capturePhoto(context, isFrontCamera, onComplete)
                 }
                 val msg = "कैमरा इस्तेमाल करने के लिए कृपया स्क्रीन पर Permission Allow करें."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "CameraVision")
             } else {
                 val msg = "कैमरा इस्तेमाल करने के लिए कैमरा परमिशन ज़रूरी है. कृपया स्क्रीन पर परमिशन दें."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "CameraVision")
             }
             DebugLogger.logCameraCapture(type = typeStr, success = false, details = "Camera permission missing")
             onComplete?.invoke(false, "Camera permission missing")
@@ -173,7 +173,7 @@ object MaxCameraManager {
                             DebugLogger.logCameraCapture(type = typeStr, success = true, details = "Saved to $savedUri")
 
                             // Required TTS confirmation: "फोटो ले ली गई है"
-                            TtsManager.speak("फोटो ले ली गई है.")
+                            TtsManager.speakIfVoiceReady("फोटो ले ली गई है.", caller = "CameraVision")
                             onComplete?.invoke(true, savedUri)
                         }
 
@@ -184,7 +184,7 @@ object MaxCameraManager {
 
                             Log.e(TAG, "Camera capture error", exception)
                             DebugLogger.logCameraCapture(type = typeStr, success = false, details = exception.message ?: "Capture failed")
-                            TtsManager.speak("फोटो खींचने में समस्या आई.")
+                            TtsManager.speakIfVoiceReady("फोटो खींचने में समस्या आई.", caller = "CameraVision")
                             onComplete?.invoke(false, exception.message ?: "Capture failed")
                         }
                     }
@@ -193,7 +193,7 @@ object MaxCameraManager {
                 _isBusy.value = false
                 Log.e(TAG, "Failed to bind camera", e)
                 DebugLogger.logCameraCapture(type = typeStr, success = false, details = e.message ?: "Camera binding failed")
-                TtsManager.speak("कैमरा चालू करने में समस्या आई.")
+                TtsManager.speakIfVoiceReady("कैमरा चालू करने में समस्या आई.", caller = "CameraVision")
                 onComplete?.invoke(false, e.message ?: "Camera binding failed")
             }
         }, mainExecutor)
@@ -214,17 +214,17 @@ object MaxCameraManager {
                     analyzeScene(context, onComplete)
                 }
                 val msg = "सामने का दृश्य देखने के लिए कृपया स्क्रीन पर Permission Allow करें."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "CameraVision")
             } else {
                 val msg = "सामने का दृश्य देखने के लिए कैमरा परमिशन ज़रूरी है."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "CameraVision")
             }
             onComplete?.invoke(false, "Camera permission missing")
             return
         }
 
         _isBusy.value = true
-        TtsManager.speak("सामने देखा जा रहा है, कृपया एक पल रुकिए...")
+        TtsManager.speakIfVoiceReady("सामने देखा जा रहा है, कृपया एक पल रुकिए...", caller = "CameraVision")
 
         val mainExecutor = ContextCompat.getMainExecutor(context)
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -261,14 +261,14 @@ object MaxCameraManager {
                                     DebugLogger.logSceneAnalysis(summary)
 
                                     // TTS speech in Hindi
-                                    TtsManager.speak(summary)
+                                    TtsManager.speakIfVoiceReady(summary, caller = "CameraVision")
                                     onComplete?.invoke(true, summary)
                                 } catch (e: Exception) {
                                     _isBusy.value = false
                                     Log.e(TAG, "Error in scene analysis", e)
                                     val err = "दृश्य विश्लेषण में समस्या आई."
                                     DebugLogger.logSceneAnalysis("Error: ${e.message}")
-                                    TtsManager.speak(err)
+                                    TtsManager.speakIfVoiceReady(err, caller = "CameraVision")
                                     onComplete?.invoke(false, err)
                                 }
                             }
@@ -280,7 +280,7 @@ object MaxCameraManager {
                             cameraProvider.unbindAll()
                             Log.e(TAG, "Failed to capture frame for scene analysis", exception)
                             val err = "फ़्रेम कैप्चर नहीं हो सका."
-                            TtsManager.speak(err)
+                            TtsManager.speakIfVoiceReady(err, caller = "CameraVision")
                             onComplete?.invoke(false, err)
                         }
                     }
@@ -289,7 +289,7 @@ object MaxCameraManager {
                 _isBusy.value = false
                 Log.e(TAG, "Camera provider setup error for scene analysis", e)
                 val err = "कैमरा शुरू नहीं हो सका."
-                TtsManager.speak(err)
+                TtsManager.speakIfVoiceReady(err, caller = "CameraVision")
                 onComplete?.invoke(false, err)
             }
         }, mainExecutor)

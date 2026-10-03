@@ -140,6 +140,17 @@ object OfflineVoiceCloneManager {
         return _isEnabled.value && _hasRecordedSample.value
     }
 
+    /**
+     * Strictly verifies whether an authentic owner voice recording sample and profile exist.
+     * Default / fallback states return false.
+     */
+    fun hasRealVoiceProfile(context: Context? = null): Boolean {
+        val ctx = context ?: try { com.example.MaxApp.instance } catch (_: Throwable) { null }
+        if (ctx == null) return _hasRecordedSample.value
+        val sample = getSampleFile(ctx)
+        return _hasRecordedSample.value && sample.exists() && sample.length() > 1000
+    }
+
     fun setEnabled(context: Context, enabled: Boolean) {
         _isEnabled.value = enabled
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()

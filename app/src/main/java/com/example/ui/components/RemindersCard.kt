@@ -166,14 +166,14 @@ fun RemindersCard(
                     IconButton(
                         onClick = {
                             if (activeReminders.isEmpty()) {
-                                TtsManager.speak("आपका कोई एक्टिव रिमाइंडर या अलार्म नहीं है.")
+                                TtsManager.speakIfVoiceReady("आपका कोई एक्टिव रिमाइंडर या अलार्म नहीं है.", caller = "RemindersCard")
                             } else {
                                 val sb = StringBuilder("आपके ${activeReminders.size} एक्टिव रिमाइंडर्स हैं: ")
                                 activeReminders.forEachIndexed { i, rem ->
                                     val type = if (rem.isAlarm) "अलार्म" else "रिमाइंडर"
                                     sb.append("${i + 1}. ${rem.task} ${rem.formattedTime} पर. ")
                                 }
-                                TtsManager.speak(sb.toString())
+                                TtsManager.speakIfVoiceReady(sb.toString(), caller = "RemindersCard")
                             }
                         },
                         modifier = Modifier

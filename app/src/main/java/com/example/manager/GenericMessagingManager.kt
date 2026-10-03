@@ -349,14 +349,14 @@ object GenericMessagingManager {
                         if (success) {
                             DebugLogger.logMessageSent(parsed.targetAppName, true, "Delivered via Accessibility App-Control")
                             val speechMsg = "${parsed.targetAppName} par $finalRecipient ko message bhej diya"
-                            TtsManager.speak(speechMsg)
+                            TtsManager.speakIfVoiceReady(speechMsg, caller = "GenericMessaging")
                             onComplete(true, speechMsg)
                         } else {
                             // Fallback to direct app intent
                             dispatchIntentFallback(context, parsed, finalRecipient, finalMessage)
                             DebugLogger.logMessageSent(parsed.targetAppName, true, "Delivered via Intent Fallback")
                             val speechMsg = "${parsed.targetAppName} par $finalRecipient ko message bhej diya"
-                            TtsManager.speak(speechMsg)
+                            TtsManager.speakIfVoiceReady(speechMsg, caller = "GenericMessaging")
                             onComplete(true, speechMsg)
                         }
                     }
@@ -365,14 +365,14 @@ object GenericMessagingManager {
                     dispatchIntentFallback(context, parsed, finalRecipient, finalMessage)
                     DebugLogger.logMessageSent(parsed.targetAppName, true, "Delivered via Intent Fallback")
                     val speechMsg = "${parsed.targetAppName} par $finalRecipient ko message bhej diya"
-                    TtsManager.speak(speechMsg)
+                    TtsManager.speakIfVoiceReady(speechMsg, caller = "GenericMessaging")
                     onComplete(true, speechMsg)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error executing generic messaging flow", e)
                 DebugLogger.logMessageSent("MessagingApp", false, e.message ?: "Execution error")
                 val errMsg = "Message bhejne me dikkat aayi. Kripya dobara koshish karein."
-                TtsManager.speak(errMsg)
+                TtsManager.speakIfVoiceReady(errMsg, caller = "GenericMessaging")
                 onComplete(false, errMsg)
             }
         }

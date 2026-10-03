@@ -165,7 +165,7 @@ class VoiceCommandManager(private val context: Context) {
             if (effectiveCommand.isBlank()) {
                 // Just wake phrase spoken by owner (e.g. "Hey Max") -> acknowledge and wait for command
                 _voiceState.value = VoiceState.Success("Aapka swagat hai! Boliye, main sun raha hoon.")
-                TtsManager.speak("Haan boliye, main sun raha hoon.")
+                TtsManager.speakIfVoiceReady("Haan boliye, main sun raha hoon.", caller = "WakeWord")
                 startListening()
                 return
             }
@@ -188,11 +188,11 @@ class VoiceCommandManager(private val context: Context) {
                     is MemoryCommandResult.LaunchFavoriteApp -> {
                         val launched = AppOpenManager.processAndLaunch(context, memResult.appName)
                         if (launched) {
-                            TtsManager.speak("Aapki favorite app ${memResult.appName} khol raha hoon.")
+                            TtsManager.speakIfVoiceReady("Aapki favorite app ${memResult.appName} khol raha hoon.", caller = "AppLauncher")
                             _voiceState.value = VoiceState.Success("Opened favorite app: ${memResult.appName}")
                         } else {
                             val msg = "Favorite app '${memResult.appName}' open nahi ho saki."
-                            TtsManager.speak(msg)
+                            TtsManager.speakIfVoiceReady(msg, caller = "AppLauncher")
                             _voiceState.value = VoiceState.Error(msg)
                         }
                     }
@@ -292,14 +292,14 @@ class VoiceCommandManager(private val context: Context) {
             val success = WhatsAppAutoReplyManager.setAutoReplyEnabled(context, targetEnable, announceWithTts = false)
             if (targetEnable) {
                 if (success) {
-                    TtsManager.speak("Auto-reply on ho gaya")
+                    TtsManager.speakIfVoiceReady("Auto-reply on ho gaya", caller = "WhatsAppAutoReply")
                     _voiceState.value = VoiceState.Success("WhatsApp Auto-Reply is ON")
                 } else {
-                    TtsManager.speak("Auto-reply ke liye notification permission zaroori hai")
+                    TtsManager.speakIfVoiceReady("Auto-reply ke liye notification permission zaroori hai", caller = "WhatsAppAutoReply")
                     _voiceState.value = VoiceState.Error("Notification Access permission required for Auto-Reply")
                 }
             } else {
-                TtsManager.speak("Auto-reply off ho gaya")
+                TtsManager.speakIfVoiceReady("Auto-reply off ho gaya", caller = "WhatsAppAutoReply")
                 _voiceState.value = VoiceState.Success("WhatsApp Auto-Reply is OFF")
             }
             return
@@ -451,7 +451,7 @@ class VoiceCommandManager(private val context: Context) {
             }
             val replyMsg = "$appLabel khul gaya"
             AppContextManager.recordConversationExchange(trimmed, replyMsg)
-            TtsManager.speak(replyMsg)
+            TtsManager.speakIfVoiceReady(replyMsg, caller = "AppLauncher")
             _voiceState.value = VoiceState.Success("App opened: $appLabel")
             return
         }
@@ -474,7 +474,7 @@ class VoiceCommandManager(private val context: Context) {
                         "Hmm, samajh raha hoon...",
                         "Ek second, rukiye..."
                     ).random()
-                    TtsManager.speak(filler)
+                    TtsManager.speakIfVoiceReady(filler, caller = "VoiceComprehension")
                 }
             }
 
@@ -519,7 +519,7 @@ class VoiceCommandManager(private val context: Context) {
                 // Deliver warm, friendly response via TTS
                 val replyText = if (result.replyText.isNotBlank()) result.replyText else "Main aapke liye kaam kar raha hoon."
                 AppContextManager.recordConversationExchange(trimmed, replyText)
-                TtsManager.speak(replyText)
+                TtsManager.speakIfVoiceReady(replyText, caller = "VoiceComprehension")
                 _voiceState.value = VoiceState.Success(replyText)
 
             } catch (e: Exception) {
@@ -528,7 +528,7 @@ class VoiceCommandManager(private val context: Context) {
                 val err = "Kshama karein, main theek se samajh nahi saka. Ek baar dobara batayiye na!"
                 AppContextManager.recordConversationExchange(trimmed, err)
                 _voiceState.value = VoiceState.Error(err)
-                TtsManager.speak(err)
+                TtsManager.speakIfVoiceReady(err, caller = "VoiceComprehension")
             }
         }
     }
@@ -554,7 +554,7 @@ class VoiceCommandManager(private val context: Context) {
                 handleHardwareVoiceCommand(part2.lowercase(), part2)
                 val msg = "Dono hardware settings adjust ho gayi"
                 AppContextManager.recordConversationExchange(raw, msg)
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "HardwareToggle")
                 _voiceState.value = VoiceState.Success(msg)
             }
             return true
@@ -572,7 +572,7 @@ class VoiceCommandManager(private val context: Context) {
                 handleHardwareVoiceCommand(part2.lowercase(), part2)
                 val msg = "${app1.name} khol diya aur hardware setting adjust kar di"
                 AppContextManager.recordConversationExchange(raw, msg)
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "CompoundCommand")
                 _voiceState.value = VoiceState.Success(msg)
             }
             return true
@@ -682,7 +682,7 @@ class VoiceCommandManager(private val context: Context) {
         val parsedAction = ReminderParser.parseCommand(trimmed)
         if (parsedAction == null) {
             val fallbackMsg = "रिमाइंडर समझ नहीं आया. कृपया समय और काम स्पष्ट बोलें."
-            TtsManager.speak(fallbackMsg)
+            TtsManager.speakIfVoiceReady(fallbackMsg, caller = "Reminders")
             _voiceState.value = VoiceState.Error(fallbackMsg)
             return
         }
@@ -701,7 +701,7 @@ class VoiceCommandManager(private val context: Context) {
                     } else {
                         "ठीक है, ${parsedAction.humanTimeDescription} पर ${parsedAction.task} याद दिला दूँगा."
                     }
-                    TtsManager.speak(confirmMsg)
+                    TtsManager.speakIfVoiceReady(confirmMsg, caller = "Reminders")
                     _voiceState.value = VoiceState.Success("$typeStr: ${parsedAction.task} at ${savedItem.formattedTime}")
                 }
             }
@@ -712,7 +712,7 @@ class VoiceCommandManager(private val context: Context) {
                         val repo = ReminderRepository(db.reminderDao())
                         repo.deleteAll()
                         val msg = "आपके सारे रिमाइंडर्स और अलार्म हटा दिए गए हैं."
-                        TtsManager.speak(msg)
+                        TtsManager.speakIfVoiceReady(msg, caller = "Reminders")
                         _voiceState.value = VoiceState.Success(msg)
                     }
                 } else {
@@ -722,7 +722,7 @@ class VoiceCommandManager(private val context: Context) {
                         } else {
                             "कोई मैचिंग रिमाइंडर नहीं मिला."
                         }
-                        TtsManager.speak(msg)
+                        TtsManager.speakIfVoiceReady(msg, caller = "Reminders")
                         _voiceState.value = if (count > 0) VoiceState.Success(msg) else VoiceState.Error(msg)
                     }
                 }
@@ -734,7 +734,7 @@ class VoiceCommandManager(private val context: Context) {
                     val activeList = repo.getActiveReminders()
                     if (activeList.isEmpty()) {
                         val msg = "आपका कोई एक्टिव रिमाइंडर या अलार्म नहीं है."
-                        TtsManager.speak(msg)
+                        TtsManager.speakIfVoiceReady(msg, caller = "Reminders")
                         _voiceState.value = VoiceState.Success(msg)
                     } else {
                         val sb = StringBuilder()
@@ -744,7 +744,7 @@ class VoiceCommandManager(private val context: Context) {
                             sb.append("${i + 1}. ${item.task} ${item.formattedTime} पर. ")
                         }
                         val speakText = sb.toString()
-                        TtsManager.speak(speakText)
+                        TtsManager.speakIfVoiceReady(speakText, caller = "Reminders")
                         _voiceState.value = VoiceState.Success("Active Reminders: ${activeList.size}")
                     }
                 }
@@ -833,52 +833,52 @@ class VoiceCommandManager(private val context: Context) {
             lower.contains("torch") || lower.contains("flashlight") || lower.contains("टॉर्च") || lower.contains("फ्लैशलाइट") || lower.contains("flash") || lower.contains("लाइट") -> {
                 HardwareToggleManager.toggleTorch(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.TORCH, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speak(if (targetState == false) "Torch band kar di" else "Torch on kar di")
+                TtsManager.speakIfVoiceReady(if (targetState == false) "Torch band kar di" else "Torch on kar di", caller = "HardwareToggle")
             }
             // WiFi
             lower.contains("wifi") || lower.contains("wi-fi") || lower.contains("वाई-फाई") || lower.contains("वाईफाई") || lower.contains("wlan") -> {
                 val willBeOn = targetState ?: !HardwareToggleManager.isWifiEnabled(context)
                 HardwareToggleManager.toggleWifi(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.WIFI, if (willBeOn) "ON" else "OFF", willBeOn)
-                TtsManager.speak(if (willBeOn) "WiFi on kar diya" else "WiFi band kar diya")
+                TtsManager.speakIfVoiceReady(if (willBeOn) "WiFi on kar diya" else "WiFi band kar diya", caller = "HardwareToggle")
             }
             // Bluetooth
             lower.contains("bluetooth") || lower.contains("ब्लूटूथ") || lower.contains("bt") -> {
                 val willBeOn = targetState ?: !HardwareToggleManager.isBluetoothEnabled(context)
                 HardwareToggleManager.toggleBluetooth(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.BLUETOOTH, if (willBeOn) "ON" else "OFF", willBeOn)
-                TtsManager.speak(if (willBeOn) "Bluetooth on kar diya" else "Bluetooth band kar diya")
+                TtsManager.speakIfVoiceReady(if (willBeOn) "Bluetooth on kar diya" else "Bluetooth band kar diya", caller = "HardwareToggle")
             }
             // Mobile Data
             lower.contains("data") || lower.contains("डेटा") || lower.contains("cellular") || lower.contains("net") -> {
                 HardwareToggleManager.toggleMobileData(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.MOBILE_DATA, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speak("Mobile Data settings khol di hai")
+                TtsManager.speakIfVoiceReady("Mobile Data settings khol di hai", caller = "HardwareToggle")
             }
             // Hotspot
             lower.contains("hotspot") || lower.contains("हॉटस्पॉट") || lower.contains("tethering") -> {
                 HardwareToggleManager.toggleHotspot(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.HOTSPOT, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speak("Hotspot settings khol di hai")
+                TtsManager.speakIfVoiceReady("Hotspot settings khol di hai", caller = "HardwareToggle")
             }
             // Brightness
             lower.contains("brightness") || lower.contains("screen light") || lower.contains("chamak") || lower.contains("ब्राइटनेस") || lower.contains("रोशनी") || lower.contains("चमक") -> {
                 val parsed = HardwareToggleManager.parseVolumeCommand(lower) // extracts percentage if any
                 HardwareToggleManager.toggleBrightness(context, parsed.explicitPercent)
                 AppContextManager.recordHardwareToggle(HardwareFeature.BRIGHTNESS, if (parsed.explicitPercent != null) "${parsed.explicitPercent}%" else "Toggled")
-                TtsManager.speak("Brightness adjust kar di hai")
+                TtsManager.speakIfVoiceReady("Brightness adjust kar di hai", caller = "HardwareToggle")
             }
             // DND
             lower.contains("dnd") || lower.contains("disturb") || lower.contains("डिस्टर्ब") -> {
                 HardwareToggleManager.toggleDnd(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.DND, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speak(if (targetState == false) "Do Not Disturb band kar diya" else "Do Not Disturb on kar diya")
+                TtsManager.speakIfVoiceReady(if (targetState == false) "Do Not Disturb band kar diya" else "Do Not Disturb on kar diya", caller = "HardwareToggle")
             }
             // Airplane Mode
             lower.contains("airplane") || lower.contains("flight") || lower.contains("हवाई मोड") || lower.contains("aeroplane") -> {
                 HardwareToggleManager.toggleAirplaneMode(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.AIRPLANE_MODE, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speak("Airplane Mode settings khol di hai")
+                TtsManager.speakIfVoiceReady("Airplane Mode settings khol di hai", caller = "HardwareToggle")
             }
         }
     }

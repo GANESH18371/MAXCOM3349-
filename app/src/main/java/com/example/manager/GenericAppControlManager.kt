@@ -172,19 +172,19 @@ object GenericAppControlManager {
                             "play" -> if (!parsed.query.isNullOrBlank()) "${parsed.query} chala diya" else "Play kar diya"
                             else -> details
                         }
-                        TtsManager.speak(spoken)
+                        TtsManager.speakIfVoiceReady(spoken, caller = "GenericAppControl")
                         onComplete(success, spoken)
                     }
                 } else {
                     // Accessibility fallback: open media app directly and confirm
                     val fallbackMsg = "${parsed.targetApp} par ${parsed.action} request bhej di gayi"
-                    TtsManager.speak(fallbackMsg)
+                    TtsManager.speakIfVoiceReady(fallbackMsg, caller = "GenericAppControl")
                     onComplete(true, fallbackMsg)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error executing generic media flow", e)
                 val errMsg = "Media control me samasya aayi"
-                TtsManager.speak(errMsg)
+                TtsManager.speakIfVoiceReady(errMsg, caller = "GenericAppControl")
                 onComplete(false, errMsg)
             }
         }

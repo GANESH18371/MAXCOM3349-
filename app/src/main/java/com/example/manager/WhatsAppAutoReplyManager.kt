@@ -92,7 +92,7 @@ object WhatsAppAutoReplyManager {
             if (!hasPermission) {
                 val warning = "Notification Access permission required for WhatsApp auto reply. Please enable Notification Access in Settings."
                 if (announceWithTts) {
-                    TtsManager.speak(warning)
+                    TtsManager.speakIfVoiceReady(warning, caller = "WhatsAppAutoReply")
                 }
                 DebugLogger.logInfo(warning)
                 openNotificationAccessSettings(context)
@@ -102,14 +102,14 @@ object WhatsAppAutoReplyManager {
             _isAutoReplyEnabled.value = true
             DebugLogger.logInfo("WhatsApp Auto-Reply ACTIVATED")
             if (announceWithTts) {
-                TtsManager.speak("WhatsApp auto-reply is now turned on.")
+                TtsManager.speakIfVoiceReady("WhatsApp auto-reply is now turned on.", caller = "WhatsAppAutoReply")
             }
             return true
         } else {
             _isAutoReplyEnabled.value = false
             DebugLogger.logInfo("WhatsApp Auto-Reply DEACTIVATED")
             if (announceWithTts) {
-                TtsManager.speak("WhatsApp auto-reply is now turned off.")
+                TtsManager.speakIfVoiceReady("WhatsApp auto-reply is now turned off.", caller = "WhatsAppAutoReply")
             }
             return true
         }

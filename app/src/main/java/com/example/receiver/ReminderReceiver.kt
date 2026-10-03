@@ -42,7 +42,7 @@ class ReminderReceiver : BroadcastReceiver() {
             } else {
                 "याद दिला रहा हूँ: $task. समय हो गया है."
             }
-            TtsManager.speak(speakText)
+            TtsManager.speakIfVoiceReady(speakText, caller = "Reminders")
         }
 
         // Update database to mark reminder as completed

@@ -170,7 +170,7 @@ object PermanentMemoryManager {
                 MemoryCommandResult.LaunchFavoriteApp(favApp)
             } else {
                 val msg = "Aapne abhi tak koi favorite app save nahi ki hai. 'Meri favorite app YouTube hai' bolkar save kar sakte hain."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
                 MemoryCommandResult.Handled(msg)
             }
         }
@@ -179,7 +179,7 @@ object PermanentMemoryManager {
         if (lower.contains("saari memory delete") || lower.contains("clear all memory") || lower.contains("delete all memories")) {
             clearAllMemories(context)
             val msg = "Maine aapki saari permanent memories delete kar di hain."
-            TtsManager.speak(msg)
+            TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
             return@withContext MemoryCommandResult.Handled(msg)
         }
 
@@ -200,7 +200,7 @@ object PermanentMemoryManager {
             } else {
                 "Mujhe '$cleanQuery' se judi koi memory nahi mili."
             }
-            TtsManager.speak(msg)
+            TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
             return@withContext MemoryCommandResult.Handled(msg)
         }
 
@@ -217,13 +217,13 @@ object PermanentMemoryManager {
             val allList = getDb(context).permanentMemoryDao().getAllMemories()
             if (allList.isEmpty()) {
                 val msg = "Mujhe abhi aapke baare me kuch pata nahi hai. Aap mujhe apni pasand ya routine bata sakte hain, jaise 'Meri favorite app YouTube hai'."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
                 return@withContext MemoryCommandResult.Handled(msg)
             } else {
                 val facts = allList.joinToString(". ") { it.rawStatement.ifBlank { "${it.memoryKey}: ${it.memoryValue}" } }
                 val msg = "Mujhe aapke baare me yeh baatein yaad hain: $facts"
                 DebugLogger.logInfo("MEMORY_RECALLED: Multiple facts recalled for user query: ${allList.size} item(s)")
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
                 return@withContext MemoryCommandResult.Handled(msg)
             }
         }
@@ -236,7 +236,7 @@ object PermanentMemoryManager {
             } else {
                 "Aapne koi favorite app save nahi ki hai."
             }
-            TtsManager.speak(msg)
+            TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
             return@withContext MemoryCommandResult.Handled(msg)
         }
 
@@ -254,7 +254,7 @@ object PermanentMemoryManager {
                     rawStatement = "Aapki favorite app $appVal hai"
                 )
                 val msg = "Theek hai, maine yaad rakh liya ki aapki favorite app $appVal hai."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
                 return@withContext MemoryCommandResult.Handled(msg)
             }
         }
@@ -273,7 +273,7 @@ object PermanentMemoryManager {
                     rawStatement = "Aapka naam $nameVal hai"
                 )
                 val msg = "Namaste $nameVal ji! Maine aapka naam permanent memory me save kar liya hai."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
                 return@withContext MemoryCommandResult.Handled(msg)
             }
         }
@@ -293,7 +293,7 @@ object PermanentMemoryManager {
                     rawStatement = "Aapko $itemVal pasand hai"
                 )
                 val msg = "Theek hai, maine yaad rakh liya ki aapko $itemVal pasand hai."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
                 return@withContext MemoryCommandResult.Handled(msg)
             }
         }
@@ -312,7 +312,7 @@ object PermanentMemoryManager {
                     rawStatement = "Aap roz $routineVal karte hain"
                 )
                 val msg = "Samajh gaya! Maine aapka routine yaad rakh liya: roz $routineVal."
-                TtsManager.speak(msg)
+                TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
                 return@withContext MemoryCommandResult.Handled(msg)
             }
         }
@@ -337,7 +337,7 @@ object PermanentMemoryManager {
                 rawStatement = explicitFact
             )
             val msg = "Theek hai, maine memory me save kar liya hai: \"$explicitFact\"."
-            TtsManager.speak(msg)
+            TtsManager.speakIfVoiceReady(msg, caller = "PermanentMemory")
             return@withContext MemoryCommandResult.Handled(msg)
         }
 
