@@ -524,6 +524,18 @@ class VoiceCommandManager(private val context: Context) {
                         "toggle" -> {
                             executeDeepComprehensionToggle(action.target)
                         }
+                        "answer" -> {
+                            if (action.target.equals("news_brief", ignoreCase = true)) {
+                                val newsApp = installedApps.find {
+                                    it.name.contains("news", ignoreCase = true) ||
+                                    it.name.contains("dailyhunt", ignoreCase = true) ||
+                                    it.name.contains("inshorts", ignoreCase = true)
+                                }
+                                if (newsApp != null) {
+                                    AppOpenManager.launchApp(context, newsApp)
+                                }
+                            }
+                        }
                     }
                     if (index < result.actions.size - 1) {
                         delay(350L) // Smooth gap between multiple actions

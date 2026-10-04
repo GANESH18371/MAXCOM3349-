@@ -45,7 +45,11 @@ object WakeWordManager {
         "okay max",
         "wake up max",
         "suno max",
-        "namaste max"
+        "namaste max",
+        "हे मैक्स",
+        "सुनो मैक्स",
+        "नमस्ते मैक्स",
+        "मैक्स"
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -212,6 +216,10 @@ object WakeWordManager {
             .replace("wake up max", "", ignoreCase = true)
             .replace("suno max", "", ignoreCase = true)
             .replace("namaste max", "", ignoreCase = true)
+            .replace("हे मैक्स", "", ignoreCase = true)
+            .replace("सुनो मैक्स", "", ignoreCase = true)
+            .replace("नमस्ते मैक्स", "", ignoreCase = true)
+            .replace("मैक्स", "", ignoreCase = true)
             .trimStart(',', ' ', ':', '-', ';')
             .trim()
     }
