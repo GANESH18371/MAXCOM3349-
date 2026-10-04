@@ -539,6 +539,7 @@ class VoiceCommandManager(private val context: Context) {
             } catch (e: Exception) {
                 isHandled = true
                 fillerJob.cancel()
+                DebugLogger.logFallbackTriggered(true, "VoiceCommandManager exception: ${e.message}")
                 val err = "Kshama karein, main theek se samajh nahi saka. Ek baar dobara batayiye na!"
                 AppContextManager.recordConversationExchange(trimmed, err)
                 _voiceState.value = VoiceState.Error(err)

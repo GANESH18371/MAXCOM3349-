@@ -214,6 +214,10 @@ object GeminiReplyService {
         if (apiKey.isBlank()) {
             DebugLogger.logGeminiRequestSent(false, "API key missing or blank")
             DebugLogger.logGeminiResponseReceived(false, "API key missing, returning local comprehension fallback")
+            DebugLogger.logGeminiApiCallStatus("fail, API key missing or blank")
+            DebugLogger.logGeminiRawResponse("API key missing or blank in SecureApiKeyManager")
+            DebugLogger.logGeminiResponseParsed("null (API key missing)")
+            DebugLogger.logFallbackTriggered(true, "API key missing or blank")
             return@withContext generateLocalComprehensionFallback(userQuery)
         }
 
@@ -288,6 +292,7 @@ object GeminiReplyService {
 
             val payloadStr = jsonBody.toString()
             DebugLogger.logGeminiRequestSent(true, payloadStr)
+            DebugLogger.logGeminiRequestPayload(payloadStr)
 
             val requestBody = payloadStr.toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
@@ -310,28 +315,50 @@ object GeminiReplyService {
                 responseBody = response.body?.string()
             }
 
+            val callSuccess = response.isSuccessful
+            DebugLogger.logGeminiApiCallStatus(callSuccess, response.code)
+            val rawToLog = responseBody ?: "HTTP ${response.code}: ${response.message}"
+            DebugLogger.logGeminiRawResponse(rawToLog)
+
             if (response.isSuccessful && !responseBody.isNullOrBlank()) {
                 DebugLogger.logGeminiResponseReceived(true, responseBody)
                 val jsonResponse = JSONObject(responseBody)
                 val candidates = jsonResponse.optJSONArray("candidates")
                 if (candidates != null && candidates.length() > 0) {
-                    val content = candidates.getJSONObject(0).optJSONObject("content")
+                    val candidateObj = candidates.getJSONObject(0)
+                    val content = candidateObj.optJSONObject("content")
                     val parts = content?.optJSONArray("parts")
                     if (parts != null && parts.length() > 0) {
                         val rawText = parts.getJSONObject(0).optString("text", "").trim()
                         val parsed = parseComprehensionJson(rawText)
                         if (parsed != null) {
+                            DebugLogger.logGeminiResponseParsed("intent='${parsed.understoodIntent}', reply='${parsed.replyText}', actions=${parsed.actions.size}")
+                            DebugLogger.logFallbackTriggered(false, "none")
                             return@withContext parsed
+                        } else {
+                            DebugLogger.logGeminiResponseParsed("Failed to parse JSON: $rawText")
+                            DebugLogger.logFallbackTriggered(true, "JSON parsing failed for candidate text: $rawText")
                         }
+                    } else {
+                        val finishReason = candidateObj.optString("finishReason", "unknown")
+                        DebugLogger.logGeminiResponseParsed("Candidate content parts empty, finishReason=$finishReason")
+                        DebugLogger.logFallbackTriggered(true, "Candidate content parts empty, finishReason=$finishReason")
                     }
+                } else {
+                    DebugLogger.logGeminiResponseParsed("Candidates array empty or null in response JSON")
+                    DebugLogger.logFallbackTriggered(true, "No candidates array in response JSON")
                 }
             } else {
                 val errorDetails = responseBody ?: "HTTP ${response.code}: ${response.message}"
                 DebugLogger.logGeminiResponseReceived(false, errorDetails)
+                DebugLogger.logFallbackTriggered(true, "HTTP ${response.code}: $errorDetails")
             }
         } catch (e: Exception) {
+            DebugLogger.logGeminiApiCallStatus("fail, ${e.javaClass.simpleName}: ${e.message}")
+            DebugLogger.logGeminiRawResponse("Exception: ${e.message}")
             DebugLogger.logGeminiResponseReceived(false, "Exception: ${e.message}")
             DebugLogger.logInfo("Gemini deep comprehension exception: ${e.message}")
+            DebugLogger.logFallbackTriggered(true, "Exception: ${e.message}")
         }
 
         return@withContext generateLocalComprehensionFallback(userQuery)

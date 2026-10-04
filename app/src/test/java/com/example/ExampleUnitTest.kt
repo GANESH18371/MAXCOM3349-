@@ -773,4 +773,43 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "TTS_CALL_PATH: feature=AppLauncher, used_central_gate=true, voice_used=cloned" })
         assertTrue(logs.any { it.message == "TTS_CALL_PATH: feature=Reminders, used_central_gate=true, voice_used=default" })
     }
+
+    @Test
+    fun geminiConversationPipelineFiveDebugLogs_test() {
+        DebugLogger.clearLogs()
+
+        // 1. "GEMINI_REQUEST_PAYLOAD: <exact kya text/prompt Gemini ko bheja gaya>"
+        val dummyPayload = """{"contents":[{"parts":[{"text":"User: namaste"}]}]}"""
+        DebugLogger.logGeminiRequestPayload(dummyPayload)
+
+        // 2. "GEMINI_API_CALL_STATUS: <success/fail, HTTP-status-code>"
+        DebugLogger.logGeminiApiCallStatus(true, 200)
+        DebugLogger.logGeminiApiCallStatus(false, 404)
+
+        // 3. "GEMINI_RAW_RESPONSE: <poora raw response jo Gemini se wapas aaya, ya agar fail hua to EXACT error-message>"
+        val dummyRawSuccess = """{"candidates":[{"content":{"parts":[{"text":"{\"understood_intent\":\"greet\",\"actions\":[],\"reply_text\":\"Namaste!\"}"}]}}]}"""
+        DebugLogger.logGeminiRawResponse(dummyRawSuccess)
+        DebugLogger.logGeminiRawResponse("HTTP 404: Not Found")
+
+        // 4. "GEMINI_RESPONSE_PARSED: <jo response app ne nikaala/samjha, parse karne ke baad>"
+        DebugLogger.logGeminiResponseParsed("intent='greet', reply='Namaste!', actions=0")
+        DebugLogger.logGeminiResponseParsed("null (Failed to parse JSON)")
+
+        // 5. "FALLBACK_TRIGGERED: <true/false>, reason=<agar fallback/echo-response use hua to EXACT wajah kyun>"
+        DebugLogger.logFallbackTriggered(false, "none")
+        DebugLogger.logFallbackTriggered(true, "HTTP 404 error: model not found")
+        DebugLogger.logFallbackTriggered(true, "API key missing or blank")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message.startsWith("GEMINI_REQUEST_PAYLOAD: ") && it.message.contains("User: namaste") })
+        assertTrue(logs.any { it.message == "GEMINI_API_CALL_STATUS: success, 200" })
+        assertTrue(logs.any { it.message == "GEMINI_API_CALL_STATUS: fail, 404" })
+        assertTrue(logs.any { it.message.startsWith("GEMINI_RAW_RESPONSE: ") && it.message.contains("Namaste!") })
+        assertTrue(logs.any { it.message == "GEMINI_RAW_RESPONSE: HTTP 404: Not Found" })
+        assertTrue(logs.any { it.message == "GEMINI_RESPONSE_PARSED: intent='greet', reply='Namaste!', actions=0" })
+        assertTrue(logs.any { it.message == "GEMINI_RESPONSE_PARSED: null (Failed to parse JSON)" })
+        assertTrue(logs.any { it.message == "FALLBACK_TRIGGERED: false, reason=none" })
+        assertTrue(logs.any { it.message == "FALLBACK_TRIGGERED: true, reason=HTTP 404 error: model not found" })
+        assertTrue(logs.any { it.message == "FALLBACK_TRIGGERED: true, reason=API key missing or blank" })
+    }
 }

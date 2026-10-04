@@ -585,6 +585,60 @@ object DebugLogger {
     }
 
     // =========================================================================
+    // GEMINI CONVERSATION PIPELINE DEBUG LOGS (5 EXACT REQUIRED FORMATS)
+    // =========================================================================
+
+    /**
+     * 1. Exact format: "GEMINI_REQUEST_PAYLOAD: <exact kya text/prompt Gemini ko bheja gaya>"
+     */
+    fun logGeminiRequestPayload(payload: String) {
+        val logLine = "GEMINI_REQUEST_PAYLOAD: $payload"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 2. Exact format: "GEMINI_API_CALL_STATUS: <success/fail, HTTP-status-code>"
+     */
+    fun logGeminiApiCallStatus(status: String) {
+        val logLine = "GEMINI_API_CALL_STATUS: $status"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    fun logGeminiApiCallStatus(success: Boolean, statusCode: Int) {
+        val status = if (success) "success, $statusCode" else "fail, $statusCode"
+        logGeminiApiCallStatus(status)
+    }
+
+    /**
+     * 3. Exact format: "GEMINI_RAW_RESPONSE: <poora raw response jo Gemini se wapas aaya, ya agar fail hua to EXACT error-message>"
+     */
+    fun logGeminiRawResponse(rawResponse: String) {
+        val logLine = "GEMINI_RAW_RESPONSE: $rawResponse"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 4. Exact format: "GEMINI_RESPONSE_PARSED: <jo response app ne nikaala/samjha, parse karne ke baad>"
+     */
+    fun logGeminiResponseParsed(parsedResponse: String) {
+        val logLine = "GEMINI_RESPONSE_PARSED: $parsedResponse"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 5. Exact format: "FALLBACK_TRIGGERED: <true/false>, reason=<agar fallback/echo-response use hua to EXACT wajah kyun>"
+     */
+    fun logFallbackTriggered(triggered: Boolean, reason: String) {
+        val logLine = "FALLBACK_TRIGGERED: $triggered, reason=$reason"
+        safeLog(if (triggered) Log.WARN else Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    // =========================================================================
     // WAKE-WORD SYSTEM HEALTH & DIAGNOSTIC DEBUG LOGS (EXACT FORMAT)
     // =========================================================================
 
