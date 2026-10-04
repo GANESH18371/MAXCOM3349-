@@ -136,8 +136,8 @@ object OfflineVoiceCloneManager {
         return File(context.filesDir, PROFILE_FILE_NAME)
     }
 
-    fun isClonedVoiceActive(): Boolean {
-        return _isEnabled.value && _hasRecordedSample.value
+    fun isClonedVoiceActive(context: Context? = null): Boolean {
+        return _isEnabled.value && hasRealVoiceProfile(context)
     }
 
     /**
@@ -146,9 +146,16 @@ object OfflineVoiceCloneManager {
      */
     fun hasRealVoiceProfile(context: Context? = null): Boolean {
         val ctx = context ?: try { com.example.MaxApp.instance } catch (_: Throwable) { null }
-        if (ctx == null) return _hasRecordedSample.value
-        val sample = getSampleFile(ctx)
-        return _hasRecordedSample.value && sample.exists() && sample.length() > 1000
+        if (ctx != null) {
+            val sample = getSampleFile(ctx)
+            if (sample.exists() && sample.length() > 1000) {
+                if (!_hasRecordedSample.value) {
+                    _hasRecordedSample.value = true
+                }
+                return true
+            }
+        }
+        return _hasRecordedSample.value
     }
 
     fun setEnabled(context: Context, enabled: Boolean) {
@@ -271,12 +278,14 @@ object OfflineVoiceCloneManager {
             val duration = totalSamples.toFloat() / SAMPLE_RATE.toFloat()
             _sampleDurationSec.value = String.format(Locale.US, "%.1f", duration).toFloat()
             _hasRecordedSample.value = true
+            _isEnabled.value = true
 
             // Analyze pitch and formants to create offline clone profile
             val analyzedPitch = analyzeSamplePitchAndFormants(context, wavFile)
             _detectedPitchHz.value = analyzedPitch
 
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_ENABLED, true)
                 .putFloat(KEY_SAMPLE_DURATION, _sampleDurationSec.value)
                 .putInt(KEY_PITCH_HZ, analyzedPitch)
                 .apply()

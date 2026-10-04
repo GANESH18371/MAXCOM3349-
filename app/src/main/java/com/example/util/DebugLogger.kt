@@ -561,6 +561,30 @@ object DebugLogger {
     }
 
     // =========================================================================
+    // API KEY SOURCE & TTS PATH VERIFICATION DEBUG LOGS (EXACT FORMAT)
+    // =========================================================================
+
+    /**
+     * Exact required format:
+     * "API_KEY_SOURCE_CHECK: feature=<kaunsa feature call kar raha hai>, key_found=<true/false>, source=<kahan se padhi>"
+     */
+    fun logApiKeySourceCheck(feature: String, keyFound: Boolean, source: String) {
+        val logLine = "API_KEY_SOURCE_CHECK: feature=$feature, key_found=$keyFound, source=$source"
+        safeLog(if (keyFound) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format:
+     * "TTS_CALL_PATH: feature=<kaunsa feature bol raha hai>, used_central_gate=<true/false>, voice_used=<cloned/default>"
+     */
+    fun logTtsCallPath(feature: String, usedCentralGate: Boolean, voiceUsed: String) {
+        val logLine = "TTS_CALL_PATH: feature=$feature, used_central_gate=$usedCentralGate, voice_used=$voiceUsed"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    // =========================================================================
     // WAKE-WORD SYSTEM HEALTH & DIAGNOSTIC DEBUG LOGS (EXACT FORMAT)
     // =========================================================================
 

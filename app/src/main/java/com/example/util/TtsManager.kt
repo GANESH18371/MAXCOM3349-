@@ -270,6 +270,7 @@ object TtsManager {
 
         if (profileExists) {
             DebugLogger.logTtsGateCheck(profileExists = true, caller = caller, action = "speak")
+            DebugLogger.logTtsCallPath(feature = caller, usedCentralGate = true, voiceUsed = "cloned")
             DebugLogger.logTtsSpeakCalled(true, cleanText)
             DebugLogger.logInfo("TTS Gate [$caller]: Speaking with Cloned Voice: \"$cleanText\"")
 
@@ -287,6 +288,7 @@ object TtsManager {
             // Voice profile does NOT exist yet!
             // Remain completely silent.
             DebugLogger.logTtsGateCheck(profileExists = false, caller = caller, action = "skip")
+            DebugLogger.logTtsCallPath(feature = caller, usedCentralGate = true, voiceUsed = "default")
             DebugLogger.logInfo("Voice-cloning setup pending (TTS suppressed for caller '$caller')")
 
             appContext?.let { ctx ->
@@ -425,9 +427,56 @@ object TtsManager {
         if (!isInitialized || tts == null) return false
         try {
             val ttsEngine = tts!!
-            // Apply owner acoustic pitch and rate shift
-            val effectivePitch = (_pitch.value * pitchFactor).coerceIn(0.5f, 2.0f)
+
+            // Smart language detection matching text script
+            val hasDevanagari = text.any { it in '\u0900'..'\u097F' }
+            val mode = _languageMode.value
+            val targetLocale = when {
+                mode == "hi_IN" -> Locale("hi", "IN")
+                mode == "en_IN" -> Locale("en", "IN")
+                hasDevanagari -> Locale("hi", "IN")
+                else -> Locale("en", "IN")
+            }
+            ttsEngine.setLanguage(targetLocale)
+
+            // Select matching timbre (male/female) according to owner's measured fundamental pitch
+            val detectedPitch = com.example.manager.OfflineVoiceCloneManager.detectedPitchHz.value
+            val isMaleOwner = detectedPitch < 165 // Adult male voice fundamental frequency 85-165Hz
+
+            val available = ttsEngine.voices ?: emptySet()
+            val candidateVoices = available.filter { v ->
+                v.locale.language.equals(targetLocale.language, ignoreCase = true)
+            }
+
+            val matchingVoice = if (isMaleOwner) {
+                candidateVoices.firstOrNull { v ->
+                    val n = v.name.lowercase(Locale.ROOT)
+                    n.contains("male") || n.contains("-hid-") || n.contains("-hic-") || n.contains("-cfc-") || n.contains("-end-") || n.contains("-enc-")
+                } ?: candidateVoices.firstOrNull { v ->
+                    val n = v.name.lowercase(Locale.ROOT)
+                    !n.contains("female") && (n.contains("d-local") || n.contains("c-local"))
+                }
+            } else {
+                candidateVoices.firstOrNull { v ->
+                    val n = v.name.lowercase(Locale.ROOT)
+                    n.contains("female") || n.contains("-hie-") || n.contains("-hia-") || n.contains("-hib-") || n.contains("-ena-")
+                }
+            }
+
+            if (matchingVoice != null) {
+                ttsEngine.voice = matchingVoice
+            } else {
+                getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
+                    ttsEngine.voice = best
+                }
+            }
+
+            // Adjust pitch relative to base pitch of selected gender
+            val basePitch = if (isMaleOwner) 125.0f else 210.0f
+            val ownerPitchShift = (detectedPitch.toFloat() / basePitch).coerceIn(0.6f, 1.7f)
+            val effectivePitch = (_pitch.value * ownerPitchShift * pitchFactor).coerceIn(0.5f, 2.0f)
             val effectiveRate = (_speechRate.value * rateFactor).coerceIn(0.6f, 1.8f)
+
             ttsEngine.setPitch(effectivePitch)
             ttsEngine.setSpeechRate(effectiveRate)
 

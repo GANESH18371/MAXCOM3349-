@@ -29,6 +29,7 @@ data class GeminiComprehensionResult(
 
 object GeminiReplyService {
     private const val MODEL_NAME = "gemini-2.5-flash"
+    private const val FALLBACK_MODEL_NAME = "gemini-flash-latest"
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL_NAME:generateContent"
     private const val STREAM_URL = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL_NAME:streamGenerateContent?alt=sse"
 
@@ -204,9 +205,11 @@ object GeminiReplyService {
     suspend fun deepUnderstandCommand(
         userQuery: String,
         contextSummary: String,
-        knownApps: List<String>
+        knownApps: List<String>,
+        context: android.content.Context? = null
     ): GeminiComprehensionResult = withContext(Dispatchers.IO) {
-        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(com.example.MaxApp.instance, "VoiceComprehension")
+        val ctx = context ?: try { com.example.MaxApp.instance } catch (_: Throwable) { null }
+        val apiKey = com.example.util.SecureApiKeyManager.getApiKey(ctx, "deep_comprehension")
 
         if (apiKey.isBlank()) {
             DebugLogger.logGeminiRequestSent(false, "API key missing or blank")
@@ -292,8 +295,20 @@ object GeminiReplyService {
                 .post(requestBody)
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val responseBody = response.body?.string()
+            var response = okHttpClient.newCall(request).execute()
+            var responseBody = response.body?.string()
+
+            // Automatic fallback if primary model returns 404 (endpoint not available in this project/region)
+            if (response.code == 404) {
+                response.close()
+                val fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/$FALLBACK_MODEL_NAME:generateContent?key=$apiKey"
+                val fallbackRequest = Request.Builder()
+                    .url(fallbackUrl)
+                    .post(payloadStr.toRequestBody("application/json".toMediaType()))
+                    .build()
+                response = okHttpClient.newCall(fallbackRequest).execute()
+                responseBody = response.body?.string()
+            }
 
             if (response.isSuccessful && !responseBody.isNullOrBlank()) {
                 DebugLogger.logGeminiResponseReceived(true, responseBody)
@@ -641,7 +656,12 @@ object GeminiReplyService {
                 "Arrey dost me shukriya kaisa! Main hamesha yahin hoon."
             }
             else -> {
-                "Maine aapki baat suni: $query. Online aur gehraai se uttar paane ke liye Settings me Gemini API key save kar lijiye."
+                val hasKey = com.example.util.SecureApiKeyManager.getApiKey(null, "LocalFallbackCheck").isNotBlank()
+                if (!hasKey) {
+                    "Maine aapki baat suni: $query. Online aur gehraai se uttar paane ke liye Settings me Gemini API key save kar lijiye."
+                } else {
+                    "Maine aapki baat suni: $query. Main aapki madad ke liye hamesha taiyaar hoon!"
+                }
             }
         }
     }

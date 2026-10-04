@@ -499,7 +499,8 @@ class VoiceCommandManager(private val context: Context) {
                 val result = com.example.service.GeminiReplyService.deepUnderstandCommand(
                     userQuery = trimmed,
                     contextSummary = contextSummary,
-                    knownApps = appNames
+                    knownApps = appNames,
+                    context = context
                 )
 
                 isHandled = true

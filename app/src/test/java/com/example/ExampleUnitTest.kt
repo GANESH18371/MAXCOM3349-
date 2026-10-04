@@ -747,4 +747,30 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "TTS_GATE_CHECK: voice_profile_exists=true, caller=VoiceComprehension, action=speak" })
         assertTrue(logs.any { it.message == "TTS_GATE_CHECK: voice_profile_exists=false, caller=WhatsAppAutoReply, action=skip" })
     }
+
+    @Test
+    fun apiKeySourceCheckAndTtsCallPath_test() {
+        DebugLogger.clearLogs()
+
+        // 1. Verify exact required log format:
+        // "API_KEY_SOURCE_CHECK: feature=<kaunsa feature call kar raha hai>, key_found=<true/false>, source=<kahan se padhi>"
+        DebugLogger.logApiKeySourceCheck(feature = "deep_comprehension", keyFound = true, source = "in_memory_cache")
+        DebugLogger.logApiKeySourceCheck(feature = "whatsapp_auto_reply", keyFound = true, source = "shared_preferences_vault")
+        DebugLogger.logApiKeySourceCheck(feature = "camera_scene_analysis", keyFound = false, source = "none")
+
+        // 2. Verify exact required log format:
+        // "TTS_CALL_PATH: feature=<kaunsa feature bol raha hai>, used_central_gate=<true/false>, voice_used=<cloned/default>"
+        DebugLogger.logTtsCallPath(feature = "VoiceComprehension", usedCentralGate = true, voiceUsed = "cloned")
+        DebugLogger.logTtsCallPath(feature = "AppLauncher", usedCentralGate = true, voiceUsed = "cloned")
+        DebugLogger.logTtsCallPath(feature = "Reminders", usedCentralGate = true, voiceUsed = "default")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "API_KEY_SOURCE_CHECK: feature=deep_comprehension, key_found=true, source=in_memory_cache" })
+        assertTrue(logs.any { it.message == "API_KEY_SOURCE_CHECK: feature=whatsapp_auto_reply, key_found=true, source=shared_preferences_vault" })
+        assertTrue(logs.any { it.message == "API_KEY_SOURCE_CHECK: feature=camera_scene_analysis, key_found=false, source=none" })
+
+        assertTrue(logs.any { it.message == "TTS_CALL_PATH: feature=VoiceComprehension, used_central_gate=true, voice_used=cloned" })
+        assertTrue(logs.any { it.message == "TTS_CALL_PATH: feature=AppLauncher, used_central_gate=true, voice_used=cloned" })
+        assertTrue(logs.any { it.message == "TTS_CALL_PATH: feature=Reminders, used_central_gate=true, voice_used=default" })
+    }
 }

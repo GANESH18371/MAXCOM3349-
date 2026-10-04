@@ -95,13 +95,16 @@ object SecureApiKeyManager {
      * 2. Standard and Encrypted SharedPreferences with unified key name "gemini_api_key".
      * 3. Fallback to BuildConfig.GEMINI_API_KEY if present and valid.
      *
-     * Emits exact debug log: "API_KEY_READ_ATTEMPT: location=<location>, found=<true/false>"
+     * Emits exact debug logs:
+     * "API_KEY_READ_ATTEMPT: location=<location>, found=<true/false>"
+     * "API_KEY_SOURCE_CHECK: feature=<location>, key_found=<true/false>, source=<kahan se padhi>"
      */
     fun getApiKey(context: Context? = null, location: String = "general"): String {
         // 1. Fast in-memory cache check
         cachedApiKey?.let { cached ->
             if (cached.isNotBlank()) {
                 DebugLogger.logApiKeyReadAttempt(location, true)
+                DebugLogger.logApiKeySourceCheck(feature = location, keyFound = true, source = "in_memory_cache")
                 return cached
             }
         }
@@ -110,17 +113,19 @@ object SecureApiKeyManager {
         if (flowVal.isNotBlank()) {
             cachedApiKey = flowVal
             DebugLogger.logApiKeyReadAttempt(location, true)
+            DebugLogger.logApiKeySourceCheck(feature = location, keyFound = true, source = "state_flow")
             return flowVal
         }
 
         // 2. Read from persistent centralized storage
         val ctx = context?.applicationContext ?: try { com.example.MaxApp.instance } catch (_: Throwable) { null }
         if (ctx != null) {
-            val keyFromStorage = readKeyFromStorage(ctx)
+            val (keyFromStorage, storageSource) = readKeyFromStorageWithSource(ctx)
             if (keyFromStorage.isNotBlank()) {
                 cachedApiKey = keyFromStorage
                 _apiKeyFlow.value = keyFromStorage
                 DebugLogger.logApiKeyReadAttempt(location, true)
+                DebugLogger.logApiKeySourceCheck(feature = location, keyFound = true, source = storageSource)
                 return keyFromStorage
             }
         }
@@ -139,26 +144,32 @@ object SecureApiKeyManager {
         }
 
         val found = finalKey.isNotBlank()
+        val source = if (found) "build_config_env" else "none"
         if (found) {
             cachedApiKey = finalKey
             _apiKeyFlow.value = finalKey
         }
         DebugLogger.logApiKeyReadAttempt(location, found)
+        DebugLogger.logApiKeySourceCheck(feature = location, keyFound = found, source = source)
         return finalKey
     }
 
     private fun readKeyFromStorage(ctx: Context): String {
+        return readKeyFromStorageWithSource(ctx).first
+    }
+
+    private fun readKeyFromStorageWithSource(ctx: Context): Pair<String, String> {
         // A. Check standard SharedPreferences with unified key name
         try {
             val stdPrefs = ctx.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
             val key = sanitizeApiKey(stdPrefs.getString(KEY_GEMINI_API, "") ?: "")
-            if (key.isNotBlank()) return key
+            if (key.isNotBlank()) return Pair(key, "shared_preferences_vault")
 
             // Check legacy key and auto-migrate
             val legacy = sanitizeApiKey(stdPrefs.getString(LEGACY_KEY_GEMINI_API, "") ?: "")
             if (legacy.isNotBlank()) {
                 stdPrefs.edit().putString(KEY_GEMINI_API, legacy).remove(LEGACY_KEY_GEMINI_API).apply()
-                return legacy
+                return Pair(legacy, "legacy_shared_preferences")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error reading from standard prefs: ${e.message}")
@@ -174,7 +185,7 @@ object SecureApiKeyManager {
                     ctx.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
                         .edit().putString(KEY_GEMINI_API, key).commit()
                 } catch (_: Exception) {}
-                return key
+                return Pair(key, "encrypted_vault")
             }
 
             val legacy = sanitizeApiKey(encPrefs.getString(LEGACY_KEY_GEMINI_API, "") ?: "")
@@ -184,13 +195,13 @@ object SecureApiKeyManager {
                     ctx.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
                         .edit().putString(KEY_GEMINI_API, legacy).commit()
                 } catch (_: Exception) {}
-                return legacy
+                return Pair(legacy, "legacy_encrypted_vault")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error reading from encrypted prefs: ${e.message}")
         }
 
-        return ""
+        return Pair("", "none")
     }
 
     /**
