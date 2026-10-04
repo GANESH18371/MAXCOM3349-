@@ -584,6 +584,16 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format:
+     * "TTS_SYNTHESIS_METHOD: <CLONETTS_REAL_SERVER / PITCH_SHIFT_FAKE>"
+     */
+    fun logTtsSynthesisMethod(method: String) {
+        val logLine = "TTS_SYNTHESIS_METHOD: $method"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     // =========================================================================
     // GEMINI CONVERSATION PIPELINE DEBUG LOGS (5 EXACT REQUIRED FORMATS)
     // =========================================================================

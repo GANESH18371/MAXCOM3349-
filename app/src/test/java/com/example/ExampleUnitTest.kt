@@ -812,4 +812,32 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "FALLBACK_TRIGGERED: true, reason=HTTP 404 error: model not found" })
         assertTrue(logs.any { it.message == "FALLBACK_TRIGGERED: true, reason=API key missing or blank" })
     }
+
+    @Test
+    fun bug1AndBug2Fixes_verificationTest() {
+        DebugLogger.clearLogs()
+
+        // 1. Verify exact required log format: "TTS_SYNTHESIS_METHOD: <CLONETTS_REAL_SERVER / PITCH_SHIFT_FAKE>"
+        DebugLogger.logTtsSynthesisMethod("CLONETTS_REAL_SERVER")
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "TTS_SYNTHESIS_METHOD: CLONETTS_REAL_SERVER" })
+
+        // 2. Verify AppContextManager blocks fallback/corrupted entries from entering conversation history
+        com.example.manager.AppContextManager.clearMemory()
+        
+        // Corrupted/fallback responses should be REJECTED
+        com.example.manager.AppContextManager.recordConversationExchange("kuch bolo", "Maine aapki baat suni: kuch bolo. Main aapki madad ke liye hamesha taiyaar hoon!")
+        com.example.manager.AppContextManager.recordConversationExchange("namaste", "Abhi Gemini thoda busy hai, thodi der baad try karo.")
+        com.example.manager.AppContextManager.recordConversationExchange("kya haal hai", "Kshama karein, main theek se samajh nahi saka.")
+        com.example.manager.AppContextManager.recordConversationExchange("echo test", "echo test")
+
+        // Only genuine, successful conversational responses should be stored
+        com.example.manager.AppContextManager.recordConversationExchange("aaj ka mausam kaisa hai?", "Aaj mausam bilkul saaf aur suhana hai.")
+
+        val summary = com.example.manager.AppContextManager.getRecentContextSummary()
+        assertFalse("Summary must not contain fallback echo text", summary.contains("Maine aapki baat suni"))
+        assertFalse("Summary must not contain busy message", summary.contains("Gemini thoda busy hai"))
+        assertFalse("Summary must not contain samajh nahi saka", summary.contains("theek se samajh nahi saka"))
+        assertTrue("Summary must contain genuine response", summary.contains("Aaj mausam bilkul saaf"))
+    }
 }

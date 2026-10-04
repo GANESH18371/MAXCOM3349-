@@ -123,7 +123,52 @@ object AppContextManager {
 
     fun getRecentInteractions(): List<InteractionRecord> = _contextState.value.recentInteractions
 
+    fun isCorruptedOrFallback(text: String): Boolean {
+        val lower = text.lowercase(Locale.getDefault()).trim()
+        return lower.contains("maine aapki baat suni") ||
+               lower.contains("max ne suna") ||
+               lower.contains("gemini thoda busy") ||
+               lower.contains("gemini api key") ||
+               lower.contains("theek se samajh nahi saka") ||
+               lower.contains("sochta hoon") ||
+               lower.contains("ek second, rukiye") ||
+               lower.contains("rukiye") ||
+               lower.contains("dekhta hoon") ||
+               lower.contains("samajh raha hoon") ||
+               lower.contains("kuch order kar do") ||
+               lower.contains("fallback")
+    }
+
+    /**
+     * Cleans any corrupted or fallback entries from stored interaction history.
+     */
+    fun cleanCorruptedHistory() {
+        val currentList = _contextState.value.recentInteractions
+        val cleaned = currentList.filter { record ->
+            when (record) {
+                is InteractionRecord.ConversationExchange -> {
+                    !isCorruptedOrFallback(record.userQuery) &&
+                    !isCorruptedOrFallback(record.assistantReply) &&
+                    !record.userQuery.equals(record.assistantReply, ignoreCase = true)
+                }
+                else -> true
+            }
+        }
+        if (cleaned.size != currentList.size) {
+            _contextState.value = _contextState.value.copy(recentInteractions = cleaned)
+            DebugLogger.logInfo("AppContext: Purged ${currentList.size - cleaned.size} corrupted/fallback entries from conversation history")
+        }
+    }
+
     fun recordConversationExchange(userQuery: String, reply: String) {
+        // BUG 1 FIX: Never save corrupted or fallback entries to conversation history!
+        if (isCorruptedOrFallback(userQuery) || isCorruptedOrFallback(reply) || userQuery.equals(reply, ignoreCase = true)) {
+            DebugLogger.logInfo("AppContext: Rejected saving fallback/corrupted exchange to history ('$userQuery' -> '$reply')")
+            return
+        }
+
+        cleanCorruptedHistory()
+
         val currentList = _contextState.value.recentInteractions
         val newRecord = InteractionRecord.ConversationExchange(userQuery, reply)
         val updatedList = (listOf(newRecord) + currentList).take(MAX_HISTORY)
@@ -133,6 +178,8 @@ object AppContextManager {
     }
 
     fun getRecentContextSummary(): String {
+        cleanCorruptedHistory()
+
         val state = _contextState.value
         val items = mutableListOf<String>()
 
@@ -143,7 +190,16 @@ object AppContextManager {
             items.add("Last action: ${it.feature.displayName}")
         }
 
-        val recent = state.recentInteractions.take(2)
+        val cleanInteractions = state.recentInteractions.filter { record ->
+            when (record) {
+                is InteractionRecord.ConversationExchange -> {
+                    !isCorruptedOrFallback(record.userQuery) && !isCorruptedOrFallback(record.assistantReply)
+                }
+                else -> true
+            }
+        }
+
+        val recent = cleanInteractions.take(2)
         if (recent.isNotEmpty()) {
             recent.forEach { record ->
                 when (record) {

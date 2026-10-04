@@ -21,7 +21,8 @@ data class ComprehensionAction(
 data class GeminiComprehensionResult(
     val understoodIntent: String,
     val actions: List<ComprehensionAction>,
-    val replyText: String
+    val replyText: String,
+    val isRealGeminiResponse: Boolean = false
 ) {
     val actionNeeded: String get() = actions.firstOrNull()?.type ?: "answer"
     val target: String get() = actions.firstOrNull()?.target ?: ""
@@ -300,27 +301,69 @@ object GeminiReplyService {
                 .post(requestBody)
                 .build()
 
-            var response = okHttpClient.newCall(request).execute()
-            var responseBody = response.body?.string()
+            var response: okhttp3.Response? = null
+            var responseBody: String? = null
+            var lastHttpCode = 0
+            var attempts = 0
+            val maxRetries = 3
 
-            // Automatic fallback if primary model returns 404 (endpoint not available in this project/region)
-            if (response.code == 404) {
-                response.close()
-                val fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/$FALLBACK_MODEL_NAME:generateContent?key=$apiKey"
-                val fallbackRequest = Request.Builder()
-                    .url(fallbackUrl)
-                    .post(payloadStr.toRequestBody("application/json".toMediaType()))
-                    .build()
-                response = okHttpClient.newCall(fallbackRequest).execute()
-                responseBody = response.body?.string()
+            while (attempts < maxRetries) {
+                attempts++
+                try {
+                    val request = Request.Builder()
+                        .url("$BASE_URL?key=$apiKey")
+                        .post(requestBody)
+                        .build()
+
+                    response?.close()
+                    response = okHttpClient.newCall(request).execute()
+                    lastHttpCode = response.code
+                    responseBody = response.body?.string()
+
+                    // Automatic fallback if primary model returns 404 (endpoint not available in this project/region)
+                    if (response.code == 404) {
+                        response.close()
+                        val fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/$FALLBACK_MODEL_NAME:generateContent?key=$apiKey"
+                        val fallbackRequest = Request.Builder()
+                            .url(fallbackUrl)
+                            .post(payloadStr.toRequestBody("application/json".toMediaType()))
+                            .build()
+                        response = okHttpClient.newCall(fallbackRequest).execute()
+                        lastHttpCode = response.code
+                        responseBody = response.body?.string()
+                    }
+
+                    // BUG 1 FIX 2: 503 (temporary overload) retry with backoff (1-2s wait, 2-3 retries)
+                    if (response.code == 503) {
+                        DebugLogger.logGeminiApiCallStatus(false, 503)
+                        DebugLogger.logInfo("Gemini 503 Overloaded. Retrying with backoff (attempt $attempts of $maxRetries)...")
+                        if (attempts < maxRetries) {
+                            val backoffMs = attempts * 1200L // 1.2s, 2.4s
+                            kotlinx.coroutines.delay(backoffMs)
+                            continue
+                        }
+                    }
+
+                    // Success or non-retryable response
+                    break
+                } catch (e: Exception) {
+                    DebugLogger.logInfo("Gemini attempt $attempts network exception: ${e.message}")
+                    if (attempts < maxRetries) {
+                        kotlinx.coroutines.delay(1000L * attempts)
+                    } else {
+                        throw e
+                    }
+                }
             }
 
-            val callSuccess = response.isSuccessful
-            DebugLogger.logGeminiApiCallStatus(callSuccess, response.code)
-            val rawToLog = responseBody ?: "HTTP ${response.code}: ${response.message}"
+            val resp = response
+            val callSuccess = resp?.isSuccessful == true
+            val code = resp?.code ?: lastHttpCode
+            DebugLogger.logGeminiApiCallStatus(callSuccess, code)
+            val rawToLog = responseBody ?: if (resp != null) "HTTP ${resp.code}: ${resp.message}" else "No response"
             DebugLogger.logGeminiRawResponse(rawToLog)
 
-            if (response.isSuccessful && !responseBody.isNullOrBlank()) {
+            if (resp != null && resp.isSuccessful && !responseBody.isNullOrBlank()) {
                 DebugLogger.logGeminiResponseReceived(true, responseBody)
                 val jsonResponse = JSONObject(responseBody)
                 val candidates = jsonResponse.optJSONArray("candidates")
@@ -334,7 +377,7 @@ object GeminiReplyService {
                         if (parsed != null) {
                             DebugLogger.logGeminiResponseParsed("intent='${parsed.understoodIntent}', reply='${parsed.replyText}', actions=${parsed.actions.size}")
                             DebugLogger.logFallbackTriggered(false, "none")
-                            return@withContext parsed
+                            return@withContext parsed.copy(isRealGeminiResponse = true)
                         } else {
                             DebugLogger.logGeminiResponseParsed("Failed to parse JSON: $rawText")
                             DebugLogger.logFallbackTriggered(true, "JSON parsing failed for candidate text: $rawText")
@@ -349,9 +392,19 @@ object GeminiReplyService {
                     DebugLogger.logFallbackTriggered(true, "No candidates array in response JSON")
                 }
             } else {
-                val errorDetails = responseBody ?: "HTTP ${response.code}: ${response.message}"
+                val errorDetails = responseBody ?: if (resp != null) "HTTP ${resp.code}: ${resp.message}" else "HTTP $code"
                 DebugLogger.logGeminiResponseReceived(false, errorDetails)
-                DebugLogger.logFallbackTriggered(true, "HTTP ${response.code}: $errorDetails")
+                DebugLogger.logFallbackTriggered(true, "HTTP $code: $errorDetails")
+
+                // BUG 1 FIX 3: If 503 or overload retries fail, return honest message and DO NOT echo or corrupt history
+                if (code == 503) {
+                    return@withContext GeminiComprehensionResult(
+                        understoodIntent = "Gemini server busy (503)",
+                        actions = listOf(ComprehensionAction("answer", "")),
+                        replyText = "Abhi Gemini thoda busy hai, thodi der baad try karo.",
+                        isRealGeminiResponse = false
+                    )
+                }
             }
         } catch (e: Exception) {
             DebugLogger.logGeminiApiCallStatus("fail, ${e.javaClass.simpleName}: ${e.message}")
@@ -359,6 +412,12 @@ object GeminiReplyService {
             DebugLogger.logGeminiResponseReceived(false, "Exception: ${e.message}")
             DebugLogger.logInfo("Gemini deep comprehension exception: ${e.message}")
             DebugLogger.logFallbackTriggered(true, "Exception: ${e.message}")
+            return@withContext GeminiComprehensionResult(
+                understoodIntent = "Gemini request failed",
+                actions = listOf(ComprehensionAction("answer", "")),
+                replyText = "Abhi Gemini thoda busy hai, thodi der baad try karo.",
+                isRealGeminiResponse = false
+            )
         }
 
         return@withContext generateLocalComprehensionFallback(userQuery)
@@ -683,12 +742,7 @@ object GeminiReplyService {
                 "Arrey dost me shukriya kaisa! Main hamesha yahin hoon."
             }
             else -> {
-                val hasKey = com.example.util.SecureApiKeyManager.getApiKey(null, "LocalFallbackCheck").isNotBlank()
-                if (!hasKey) {
-                    "Maine aapki baat suni: $query. Online aur gehraai se uttar paane ke liye Settings me Gemini API key save kar lijiye."
-                } else {
-                    "Maine aapki baat suni: $query. Main aapki madad ke liye hamesha taiyaar hoon!"
-                }
+                "Abhi Gemini thoda busy hai, thodi der baad try karo."
             }
         }
     }

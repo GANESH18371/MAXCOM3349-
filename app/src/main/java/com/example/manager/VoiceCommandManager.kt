@@ -532,7 +532,13 @@ class VoiceCommandManager(private val context: Context) {
 
                 // Deliver warm, friendly response via TTS
                 val replyText = if (result.replyText.isNotBlank()) result.replyText else "Main aapke liye kaam kar raha hoon."
-                AppContextManager.recordConversationExchange(trimmed, replyText)
+                
+                // BUG 1 FIX 1: ONLY save genuine, successful Gemini responses to conversation history!
+                // Never save fallback text or errors to context history.
+                if (result.isRealGeminiResponse) {
+                    AppContextManager.recordConversationExchange(trimmed, replyText)
+                }
+
                 TtsManager.speakIfVoiceReady(replyText, caller = "VoiceComprehension")
                 _voiceState.value = VoiceState.Success(replyText)
 
@@ -540,8 +546,8 @@ class VoiceCommandManager(private val context: Context) {
                 isHandled = true
                 fillerJob.cancel()
                 DebugLogger.logFallbackTriggered(true, "VoiceCommandManager exception: ${e.message}")
-                val err = "Kshama karein, main theek se samajh nahi saka. Ek baar dobara batayiye na!"
-                AppContextManager.recordConversationExchange(trimmed, err)
+                // Honest error message when Gemini call fails; never save to conversation history
+                val err = "Abhi Gemini thoda busy hai, thodi der baad try karo."
                 _voiceState.value = VoiceState.Error(err)
                 TtsManager.speakIfVoiceReady(err, caller = "VoiceComprehension")
             }

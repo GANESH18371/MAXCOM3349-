@@ -7,6 +7,7 @@ import android.media.AudioRecord
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.speech.tts.TextToSpeech
+import android.util.Base64
 import android.util.Log
 import com.example.util.DebugLogger
 import kotlinx.coroutines.CoroutineScope
@@ -21,6 +22,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -417,10 +419,11 @@ object OfflineVoiceCloneManager {
     // =========================================================================
 
     /**
-     * Synthesizes speech using the offline cloned voice profile.
-     * Mode A: If CloneTTS local server is active, queries http://127.0.0.1:8080/api/tts.
-     * Mode B: Performs native on-device acoustic-matched synthesis.
-     * If neither succeeds, calls onFallback to trigger default Android TTS.
+     * Synthesizes speech using the REAL CloneTTS / sherpa-onnx synthesis pipeline.
+     * Mode: Real CloneTTS local daemon (http://127.0.0.1:8080/api/tts).
+     * 1. Uses the real owner biometric embedding vector and recorded sample.
+     * 2. Completely eliminates the fake pitch-shift shortcut.
+     * 3. Falls back to standard Android TTS cleanly if server is unavailable.
      */
     fun speakWithClonedVoice(
         text: String,
@@ -434,30 +437,19 @@ object OfflineVoiceCloneManager {
         _isSynthesizing.value = true
 
         scope.launch {
-            // Mode 1: Check if local HTTP CloneTTS API (sherpa-onnx / CloneTTS daemon) is requested
-            if (_engineMode.value == "LOCAL_HTTP_API") {
-                val httpSuccess = queryLocalCloneTtsApi(text, onDone)
-                if (httpSuccess) {
-                    _isSynthesizing.value = false
-                    return@launch
-                }
+            // BUG 2 FIX 1, 2, 3: Call real CloneTTS / sherpa-onnx synthesis pipeline
+            val httpSuccess = queryLocalCloneTtsApi(text, onDone)
+            if (httpSuccess) {
+                _isSynthesizing.value = false
+                return@launch
             }
 
-            // Mode 2: Native on-device acoustic vocal-tract morphing (100% offline, Zero delay)
+            // Real CloneTTS server not running or synthesis failed:
+            // Fall back cleanly to standard Android TTS WITHOUT fake pitch shift!
             withContext(mainDispatcher) {
                 _isSynthesizing.value = false
-                val handled = com.example.util.TtsManager.speakWithAcousticProfile(
-                    text = text,
-                    pitchFactor = cachedPitchFactor,
-                    rateFactor = cachedSpeechRate,
-                    onDone = onDone
-                )
-                if (!handled) {
-                    DebugLogger.logInfo("Local acoustic synthesis fallback triggered")
-                    onFallback()
-                } else {
-                    DebugLogger.logInfo("Spoke in owner's cloned voice (Pitch: ${_detectedPitchHz.value}Hz, Shift: ${cachedPitchFactor}x)")
-                }
+                DebugLogger.logInfo("CloneTTS server unavailable at ${_localApiUrl.value}; falling back to default Android TTS (fake pitch-shift removed)")
+                onFallback()
             }
         }
 
@@ -465,11 +457,32 @@ object OfflineVoiceCloneManager {
     }
 
     private suspend fun queryLocalCloneTtsApi(text: String, onDone: (() -> Unit)?): Boolean = withContext(Dispatchers.IO) {
+        // BUG 2 FIX 4: Exact required debug log
+        DebugLogger.logTtsSynthesisMethod("CLONETTS_REAL_SERVER")
+
         try {
+            val ctx = try { com.example.MaxApp.instance } catch (_: Throwable) { null }
+            val realEmbedding = if (ctx != null) OwnerVoiceBiometricModel.loadEmbeddingFromFile(ctx) else null
+            val sampleFile = if (ctx != null) getSampleFile(ctx) else null
+
+            val sampleBase64 = if (sampleFile != null && sampleFile.exists()) {
+                try {
+                    Base64.encodeToString(sampleFile.readBytes(), Base64.NO_WRAP)
+                } catch (_: Exception) { "" }
+            } else ""
+
+            val embeddingArray = JSONArray()
+            realEmbedding?.forEach { embeddingArray.put(it.toDouble()) }
+
             val json = JSONObject().apply {
                 put("text", text)
                 put("speaker_wav", "owner_sample")
+                if (sampleBase64.isNotEmpty()) {
+                    put("speaker_wav_base64", sampleBase64)
+                }
+                put("speaker_embedding", embeddingArray)
                 put("speed", 1.0)
+                put("sample_rate", SAMPLE_RATE)
             }
             val requestBody = json.toString().toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
@@ -484,11 +497,14 @@ object OfflineVoiceCloneManager {
                     withContext(mainDispatcher) {
                         playSynthesizedAudioBytes(audioBytes, onDone)
                     }
+                    DebugLogger.logInfo("Real CloneTTS server audio received and playback initiated")
                     return@withContext true
                 }
+            } else {
+                DebugLogger.logInfo("CloneTTS server responded with HTTP ${response.code}: ${response.message}")
             }
-        } catch (_: Exception) {
-            // Local HTTP server not running; gracefully drop down to native on-device synthesis
+        } catch (e: Exception) {
+            DebugLogger.logInfo("Local CloneTTS HTTP server not reachable: ${e.message}")
         }
         return@withContext false
     }

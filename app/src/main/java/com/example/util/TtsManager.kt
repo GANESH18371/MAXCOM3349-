@@ -471,11 +471,9 @@ object TtsManager {
                 }
             }
 
-            // Adjust pitch relative to base pitch of selected gender
-            val basePitch = if (isMaleOwner) 125.0f else 210.0f
-            val ownerPitchShift = (detectedPitch.toFloat() / basePitch).coerceIn(0.6f, 1.7f)
-            val effectivePitch = (_pitch.value * ownerPitchShift * pitchFactor).coerceIn(0.5f, 2.0f)
-            val effectiveRate = (_speechRate.value * rateFactor).coerceIn(0.6f, 1.8f)
+            // Standard natural Android TTS parameters without fake pitch-shifting shortcut
+            val effectivePitch = (_pitch.value * pitchFactor).coerceIn(0.8f, 1.2f)
+            val effectiveRate = (_speechRate.value * rateFactor).coerceIn(0.8f, 1.4f)
 
             ttsEngine.setPitch(effectivePitch)
             ttsEngine.setSpeechRate(effectiveRate)
