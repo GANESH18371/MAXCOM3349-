@@ -274,16 +274,10 @@ object TtsManager {
             DebugLogger.logTtsSpeakCalled(true, cleanText)
             DebugLogger.logInfo("TTS Gate [$caller]: Speaking with Cloned Voice: \"$cleanText\"")
 
-            val handled = com.example.manager.OfflineVoiceCloneManager.speakWithClonedVoice(
+            com.example.manager.OfflineVoiceCloneManager.speakWithClonedVoice(
                 cleanText,
-                onDone = onDone,
-                onFallback = {
-                    speakWithAcousticProfile(cleanText, 1.0f, 1.0f, onDone)
-                }
+                onDone = onDone
             )
-            if (!handled) {
-                speakWithAcousticProfile(cleanText, 1.0f, 1.0f, onDone)
-            }
         } else {
             // Voice profile does NOT exist yet!
             // Remain completely silent.

@@ -632,6 +632,22 @@ class ExampleUnitTest {
         val logs = DebugLogger.logs.value
         assertTrue(logs.any { it.message.contains("Offline Voice Clone created! Duration: 2.1s") })
         assertTrue(logs.any { it.message.contains("Spoke in owner's cloned voice") })
+
+        // 3. Exact required log formats for CloneTTS Server Status & Synthesis Attempts
+        DebugLogger.logCloneTtsServerStatus("running")
+        DebugLogger.logCloneTtsServerStatus("failed")
+        DebugLogger.logCloneTtsServerStatus("not-started")
+        DebugLogger.logCloneTtsSynthesisAttempt(true, "none")
+        DebugLogger.logCloneTtsSynthesisAttempt(false, "voice profile nahi mila")
+        DebugLogger.logCloneTtsSynthesisAttempt(false, "audio generate nahi ho saka")
+
+        val currentLogs = DebugLogger.logs.value
+        assertTrue(currentLogs.any { it.message == "CLONETTS_SERVER_STATUS: running" })
+        assertTrue(currentLogs.any { it.message == "CLONETTS_SERVER_STATUS: failed" })
+        assertTrue(currentLogs.any { it.message == "CLONETTS_SERVER_STATUS: not-started" })
+        assertTrue(currentLogs.any { it.message == "CLONETTS_SYNTHESIS_ATTEMPT: success, error=none" })
+        assertTrue(currentLogs.any { it.message == "CLONETTS_SYNTHESIS_ATTEMPT: fail, error=voice profile nahi mila" })
+        assertTrue(currentLogs.any { it.message == "CLONETTS_SYNTHESIS_ATTEMPT: fail, error=audio generate nahi ho saka" })
     }
 
     @Test

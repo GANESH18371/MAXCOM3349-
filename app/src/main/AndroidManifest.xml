@@ -129,6 +129,12 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Background Service for CloneTTS / Sherpa-ONNX Local Server Daemon -->
+        <service
+            android:name=".service.CloneTtsDaemonService"
+            android:enabled="true"
+            android:exported="false" />
+
         <!-- Broadcast Receiver for Local Reminders and Alarms -->
         <receiver
             android:name=".receiver.ReminderReceiver"

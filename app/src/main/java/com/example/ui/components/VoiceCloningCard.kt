@@ -3,6 +3,7 @@ package com.example.ui.components
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -98,6 +100,10 @@ fun VoiceCloningCard(
     var showArchitectureGuide by remember { mutableStateOf(false) }
     var inputLocalEndpoint by remember { mutableStateOf(localApiUrl) }
 
+    var isUploading by remember { mutableStateOf(false) }
+    var uploadStatusMessage by remember { mutableStateOf<String?>(null) }
+    var isUploadSuccess by remember { mutableStateOf<Boolean?>(null) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -105,6 +111,30 @@ fun VoiceCloningCard(
             OfflineVoiceCloneManager.startRecording(context)
         } else {
             Toast.makeText(context, "Microphone permission required for voice sample recording", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isUploading = true
+            uploadStatusMessage = "Processing audio file..."
+            isUploadSuccess = null
+            scope.launch {
+                val res = OfflineVoiceCloneManager.importAudioSampleFromUri(context, uri)
+                isUploading = false
+                if (res.isSuccess) {
+                    isUploadSuccess = true
+                    uploadStatusMessage = "PROFILE EXTRACTED ✓"
+                    Toast.makeText(context, "PROFILE EXTRACTED ✓ - Voice sample imported", Toast.LENGTH_SHORT).show()
+                } else {
+                    isUploadSuccess = false
+                    val errMsg = res.exceptionOrNull()?.message ?: "1-3 second ki .wav/.mp3 file chahiye"
+                    uploadStatusMessage = "Voice cloning fail hui: $errMsg, dobara try karein"
+                    Toast.makeText(context, "Voice cloning fail hui: $errMsg, dobara try karein", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -316,12 +346,12 @@ fun VoiceCloningCard(
                         color = JarvisTextDim
                     )
 
-                    // Recording Action Buttons
+                    // Sample Creation Action Buttons (RECORD + UPLOAD FILE)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // Record / Stop Button
+                        // 1. Record / Stop Button
                         Button(
                             onClick = {
                                 if (isRecording) {
@@ -343,8 +373,8 @@ fun VoiceCloningCard(
                             ),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier
-                                .weight(1.3f)
-                                .height(34.dp)
+                                .weight(1f)
+                                .height(36.dp)
                                 .testTag("record_offline_sample_button")
                         ) {
                             Icon(
@@ -355,7 +385,7 @@ fun VoiceCloningCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (isRecording) "STOPPING..." else "RECORD SAMPLE (1-3s)",
+                                text = if (isRecording) "STOPPING..." else "RECORD",
                                 color = Color.Black,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
@@ -363,8 +393,52 @@ fun VoiceCloningCard(
                             )
                         }
 
-                        // Play Sample Button
-                        if (hasSample) {
+                        // 2. Upload Audio File Button (PART 2)
+                        OutlinedButton(
+                            onClick = {
+                                uploadStatusMessage = null
+                                audioPickerLauncher.launch("audio/*")
+                            },
+                            enabled = !isRecording && !isUploading,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(36.dp)
+                                .testTag("upload_audio_file_button")
+                        ) {
+                            if (isUploading) {
+                                CircularProgressIndicator(
+                                    color = JarvisCyan,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.UploadFile,
+                                    contentDescription = "Upload audio file",
+                                    tint = JarvisCyan,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = if (isUploading) "PROCESSING..." else "UPLOAD AUDIO FILE",
+                                color = JarvisCyan,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    // Existing Sample Playback & Delete Row
+                    if (hasSample) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             OutlinedButton(
                                 onClick = {
                                     if (isPlayingSample) {
@@ -375,7 +449,7 @@ fun VoiceCloningCard(
                                 },
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier
-                                    .weight(0.9f)
+                                    .weight(1f)
                                     .height(34.dp)
                             ) {
                                 Icon(
@@ -384,9 +458,9 @@ fun VoiceCloningCard(
                                     tint = JarvisCyan,
                                     modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(2.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (isPlayingSample) "STOP" else "LISTEN",
+                                    text = if (isPlayingSample) "STOP PLAYBACK" else "LISTEN SAMPLE",
                                     color = JarvisCyan,
                                     fontSize = 9.sp,
                                     fontFamily = FontFamily.Monospace
@@ -397,6 +471,7 @@ fun VoiceCloningCard(
                             IconButton(
                                 onClick = {
                                     OfflineVoiceCloneManager.deleteSample(context)
+                                    uploadStatusMessage = null
                                     Toast.makeText(context, "Voice sample removed", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier.size(34.dp)
@@ -408,6 +483,34 @@ fun VoiceCloningCard(
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
+                        }
+                    }
+
+                    // Upload Status Message / Error Feedback
+                    AnimatedVisibility(visible = uploadStatusMessage != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isUploadSuccess == true) JarvisNeonGreen.copy(alpha = 0.12f)
+                                    else JarvisNeonRed.copy(alpha = 0.12f),
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isUploadSuccess == true) JarvisNeonGreen.copy(alpha = 0.4f)
+                                    else JarvisNeonRed.copy(alpha = 0.4f),
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = uploadStatusMessage ?: "",
+                                color = if (isUploadSuccess == true) JarvisNeonGreen else JarvisNeonRed,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
@@ -523,14 +626,10 @@ fun VoiceCloningCard(
                             onDone = {
                                 testStatusMessage = "Speech playback completed in your cloned voice ✓"
                                 isTestSuccess = true
-                            },
-                            onFallback = {
-                                testStatusMessage = "Offline voice fallback to Android TTS"
-                                isTestSuccess = true
                             }
                         )
                         if (!handled) {
-                            testStatusMessage = "Enable voice cloning and record sample first"
+                            testStatusMessage = "Voice cloning fail hui: profile nahi mila, dobara try karein"
                             isTestSuccess = false
                         }
                     }

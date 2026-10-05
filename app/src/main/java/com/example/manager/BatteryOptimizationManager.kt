@@ -38,14 +38,16 @@ object BatteryOptimizationManager {
     val batteryStatus: StateFlow<BatteryHealthStatus> = _batteryStatus.asStateFlow()
 
     private var batteryReceiver: BroadcastReceiver? = null
+    private var registeredContext: Context? = null
 
     fun init(context: Context) {
-        registerBatteryReceiver(context)
-        refreshStatus(context)
+        val appCtx = context.applicationContext ?: context
+        registerBatteryReceiver(appCtx)
+        refreshStatus(appCtx)
         DebugLogger.logInfo("BatteryOptimizationManager initialized (Zero Background Drain Architecture)")
     }
 
-    private fun registerBatteryReceiver(context: Context) {
+    private fun registerBatteryReceiver(appContext: Context) {
         if (batteryReceiver != null) return
         batteryReceiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, intent: Intent?) {
@@ -60,9 +62,21 @@ object BatteryOptimizationManager {
             }
         }
         try {
-            context.registerReceiver(batteryReceiver, filter)
+            appContext.registerReceiver(batteryReceiver, filter)
+            registeredContext = appContext
         } catch (e: Exception) {
             Log.w(TAG, "Error registering battery receiver", e)
+        }
+    }
+
+    fun unregister(context: Context? = null) {
+        val ctx = context?.applicationContext ?: registeredContext
+        batteryReceiver?.let { receiver ->
+            try {
+                ctx?.unregisterReceiver(receiver)
+            } catch (_: Exception) {}
+            batteryReceiver = null
+            registeredContext = null
         }
     }
 

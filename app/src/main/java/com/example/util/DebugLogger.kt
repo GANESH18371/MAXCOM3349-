@@ -594,6 +594,27 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format:
+     * "CLONETTS_SERVER_STATUS: <running/not-started/failed>"
+     */
+    fun logCloneTtsServerStatus(status: String) {
+        val logLine = "CLONETTS_SERVER_STATUS: $status"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format:
+     * "CLONETTS_SYNTHESIS_ATTEMPT: success/fail, error=<exact reason>"
+     */
+    fun logCloneTtsSynthesisAttempt(success: Boolean, error: String = "none") {
+        val status = if (success) "success" else "fail"
+        val logLine = "CLONETTS_SYNTHESIS_ATTEMPT: $status, error=$error"
+        safeLog(if (success) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     // =========================================================================
     // GEMINI CONVERSATION PIPELINE DEBUG LOGS (5 EXACT REQUIRED FORMATS)
     // =========================================================================
