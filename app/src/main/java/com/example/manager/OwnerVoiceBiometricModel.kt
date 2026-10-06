@@ -109,8 +109,11 @@ object OwnerVoiceBiometricModel {
      * Confirms and logs file existence, path, and size.
      */
     fun saveEmbeddingToFile(context: Context, embedding: FloatArray): Boolean {
-        if (embedding.size != EMBEDDING_DIM) return false
         val file = getEmbeddingFile(context)
+        if (embedding.size != EMBEDDING_DIM) {
+            DebugLogger.logEnrollmentProfileSaved(false, file.absolutePath, 0L)
+            return false
+        }
         return try {
             FileOutputStream(file).use { fos ->
                 DataOutputStream(fos).use { dos ->
@@ -122,6 +125,9 @@ object OwnerVoiceBiometricModel {
             }
 
             val fileExists = file.exists() && file.length() >= EMBEDDING_DIM * 4L
+            val fileSize = if (file.exists()) file.length() else 0L
+            DebugLogger.logEnrollmentProfileSaved(fileExists, file.absolutePath, fileSize)
+
             if (!fileExists) {
                 Log.e(TAG, "File creation check failed for ${file.absolutePath}")
                 return false
@@ -136,6 +142,7 @@ object OwnerVoiceBiometricModel {
             WakeWordManager.refreshEnrollmentStatus(context)
             true
         } catch (e: Exception) {
+            DebugLogger.logEnrollmentProfileSaved(false, file.absolutePath, 0L)
             Log.e(TAG, "Failed to save owner embedding to file", e)
             false
         }
@@ -405,13 +412,21 @@ object OwnerVoiceBiometricModel {
      * Enrolls multiple candidate audio samples into a consolidated master fingerprint.
      */
     fun enrollFromSamples(context: Context, samples: List<ShortArray>): Boolean {
-        if (samples.isEmpty()) return false
+        if (samples.isEmpty()) {
+            DebugLogger.logEnrollmentEmbeddingExtracted(false, "no samples provided")
+            return false
+        }
         val consolidated = FloatArray(EMBEDDING_DIM)
 
-        for (sample in samples) {
-            val emb = extractEmbedding(sample)
-            for (i in 0 until EMBEDDING_DIM) {
-                consolidated[i] += emb[i]
+        for ((idx, sample) in samples.withIndex()) {
+            if (sample.size < 512) {
+                DebugLogger.logEnrollmentEmbeddingExtracted(false, "sample #${idx + 1} too short (${sample.size} samples, minimum 512 required)")
+            } else {
+                val emb = extractEmbedding(sample)
+                DebugLogger.logEnrollmentEmbeddingExtracted(true, "none")
+                for (i in 0 until EMBEDDING_DIM) {
+                    consolidated[i] += emb[i]
+                }
             }
         }
 
@@ -433,11 +448,17 @@ object OwnerVoiceBiometricModel {
      * Automatically extracts owner voice embedding from a recorded WAV audio file.
      */
     fun enrollFromWavFile(context: Context, wavFile: File): Boolean {
-        if (!wavFile.exists() || wavFile.length() <= 44) return false
+        if (!wavFile.exists() || wavFile.length() <= 44) {
+            DebugLogger.logEnrollmentEmbeddingExtracted(false, "WAV file absent or empty")
+            return false
+        }
         return try {
             val bytes = wavFile.readBytes()
             val pcmLength = (bytes.size - 44) / 2
-            if (pcmLength < 512) return false
+            if (pcmLength < 512) {
+                DebugLogger.logEnrollmentEmbeddingExtracted(false, "PCM length < 512 samples")
+                return false
+            }
             val shortArray = ShortArray(pcmLength)
             for (i in 0 until pcmLength) {
                 val b1 = bytes[44 + i * 2].toInt() and 0xFF
@@ -445,8 +466,10 @@ object OwnerVoiceBiometricModel {
                 shortArray[i] = ((b2 shl 8) or b1).toShort()
             }
             val embedding = extractEmbedding(shortArray)
+            DebugLogger.logEnrollmentEmbeddingExtracted(true, "none")
             saveStoredFingerprint(context, embedding, 1)
         } catch (e: Exception) {
+            DebugLogger.logEnrollmentEmbeddingExtracted(false, e.message ?: "Unknown extraction error")
             Log.e(TAG, "Error enrolling from WAV file", e)
             false
         }

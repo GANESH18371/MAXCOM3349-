@@ -738,6 +738,83 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact format: "MIC_PERMISSION_GRANTED: <bool>"
+     */
+    fun logMicPermissionGranted(granted: Boolean) {
+        val logLine = "MIC_PERMISSION_GRANTED: $granted"
+        safeLog(if (granted) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact format: "AUDIORECORD_STATE: <initialized/recording/error>"
+     */
+    fun logAudioRecordState(state: String) {
+        val logLine = "AUDIORECORD_STATE: $state"
+        safeLog(if (state == "recording") Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact format: "AUDIO_SOURCE_CONFLICT: <true/false, agar koi aur app mic use kar raha ho>"
+     */
+    fun logAudioSourceConflict(conflict: Boolean, details: String? = null) {
+        val logLine = if (details != null) "AUDIO_SOURCE_CONFLICT: $conflict, $details" else "AUDIO_SOURCE_CONFLICT: $conflict"
+        safeLog(if (conflict) Log.WARN else Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    // =========================================================================
+    // OWNER-VOICE-ENROLLMENT DIAGNOSTIC DEBUG LOGS (5 EXACT REQUIRED FORMATS)
+    // =========================================================================
+
+    /**
+     * 1. Exact format: "ENROLLMENT_RECORD_STARTED: <true/false>, sample_number=<kaunsa sample, 1-5>"
+     */
+    fun logEnrollmentRecordStarted(started: Boolean, sampleNumber: Int) {
+        val logLine = "ENROLLMENT_RECORD_STARTED: $started, sample_number=$sampleNumber"
+        safeLog(if (started) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 2. Exact format: "ENROLLMENT_AUDIO_CAPTURED: <true/false>, duration=<sec>, rms_level=<>"
+     */
+    fun logEnrollmentAudioCaptured(captured: Boolean, duration: String, rmsLevel: Int) {
+        val logLine = "ENROLLMENT_AUDIO_CAPTURED: $captured, duration=$duration, rms_level=$rmsLevel"
+        safeLog(if (captured) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 3. Exact format: "ENROLLMENT_EMBEDDING_EXTRACTED: <true/false>, error=<agar fail ho to exact reason>"
+     */
+    fun logEnrollmentEmbeddingExtracted(extracted: Boolean, error: String = "none") {
+        val logLine = "ENROLLMENT_EMBEDDING_EXTRACTED: $extracted, error=$error"
+        safeLog(if (extracted) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 4. Exact format: "ENROLLMENT_PROFILE_SAVED: <true/false>, file_path=<>, file_size=<>"
+     */
+    fun logEnrollmentProfileSaved(saved: Boolean, filePath: String, fileSize: Long) {
+        val logLine = "ENROLLMENT_PROFILE_SAVED: $saved, file_path=$filePath, file_size=$fileSize"
+        safeLog(if (saved) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * 5. Exact format: "ENROLLMENT_VALIDATION_RESULT: <valid/invalid>, reason=<exact wajah agar invalid>"
+     */
+    fun logEnrollmentValidationResult(valid: Boolean, reason: String = "none") {
+        val status = if (valid) "valid" else "invalid"
+        val logLine = "ENROLLMENT_VALIDATION_RESULT: $status, reason=$reason"
+        safeLog(if (valid) Log.INFO else Log.WARN, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

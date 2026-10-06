@@ -50,6 +50,7 @@ class WakeWordBackgroundService : Service() {
     private var audioListeningJob: Job? = null
 
     private var audioRecord: AudioRecord? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -60,16 +61,29 @@ class WakeWordBackgroundService : Service() {
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
         DebugLogger.logAudioPermissionStatus(hasPermission)
+        DebugLogger.logMicPermissionGranted(hasPermission)
 
         // 2. Battery Optimization Check
         val isBatteryExempted = checkBatteryOptimizationStatus()
         DebugLogger.logBatteryOptimizationStatus(isBatteryExempted)
+
+        // Acquire partial WakeLock to prevent Android CPU Doze throttling
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Max:WakeWordBackgroundService")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error acquiring WakeLock", e)
+        }
 
         // 3. Wake-Word Model File Integrity Check (openWakeWord .onnx / on-device model)
         checkModelIntegrity()
 
         if (!hasPermission) {
             _isServiceActive.value = false
+            DebugLogger.logAudioRecordState("error")
             DebugLogger.logWakeWordServiceStarted(false)
             DebugLogger.logMicStreamActive(false)
             stopSelf()
@@ -114,6 +128,12 @@ class WakeWordBackgroundService : Service() {
         DebugLogger.logWakeWordServiceRunning(false, getCurrentTimestamp())
         stopAudioStreamListening()
         heartbeatJob?.cancel()
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+            wakeLock = null
+        } catch (_: Exception) {}
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -174,29 +194,68 @@ class WakeWordBackgroundService : Service() {
             val minBufSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
 
             if (minBufSize <= 0) {
+                DebugLogger.logAudioRecordState("error")
+                DebugLogger.logAudioSourceConflict(true, "Invalid buffer size")
                 DebugLogger.logMicStreamActive(false)
                 return@launch
             }
 
             try {
-                audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                    sampleRate,
-                    channelConfig,
-                    audioFormat,
-                    minBufSize * 2
+                // Try MediaRecorder.AudioSource.MIC first for raw uncompressed real audio levels,
+                // with fallback to VOICE_RECOGNITION
+                val sourcesToTry = intArrayOf(
+                    MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION
                 )
 
-                if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                var initializedRecord: AudioRecord? = null
+                for (source in sourcesToTry) {
+                    try {
+                        val candidate = AudioRecord(
+                            source,
+                            sampleRate,
+                            channelConfig,
+                            audioFormat,
+                            minBufSize * 4
+                        )
+                        if (candidate.state == AudioRecord.STATE_INITIALIZED) {
+                            initializedRecord = candidate
+                            break
+                        } else {
+                            candidate.release()
+                        }
+                    } catch (_: Throwable) {}
+                }
+
+                if (initializedRecord == null || initializedRecord.state != AudioRecord.STATE_INITIALIZED) {
+                    DebugLogger.logAudioRecordState("error")
+                    DebugLogger.logAudioSourceConflict(true, "AudioRecord initialization failed on all sources")
                     DebugLogger.logMicStreamActive(false)
-                    audioRecord?.release()
-                    audioRecord = null
                     return@launch
                 }
 
-                audioRecord?.startRecording()
+                audioRecord = initializedRecord
+                DebugLogger.logAudioRecordState("initialized")
+
+                try {
+                    audioRecord?.startRecording()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start AudioRecord", e)
+                }
+
+                val isRecording = audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING
+                if (!isRecording) {
+                    DebugLogger.logAudioRecordState("error")
+                    DebugLogger.logAudioSourceConflict(true, "AudioRecord could not start recording (source in use)")
+                    DebugLogger.logMicStreamActive(false)
+                    return@launch
+                }
+
+                DebugLogger.logAudioRecordState("recording")
+                DebugLogger.logAudioSourceConflict(false)
                 DebugLogger.logMicStreamActive(true)
 
+                // 1024 shorts at 16kHz is 64ms of audio frame (matches the ~50-100ms interval)
                 val buffer = ShortArray(1024)
                 var lastAttemptLogTime = 0L
 
@@ -206,23 +265,29 @@ class WakeWordBackgroundService : Service() {
                         // Calculate audio RMS to verify signal intensity
                         var sum = 0.0
                         for (i in 0 until read) {
-                            sum += (buffer[i] * buffer[i]).toDouble()
+                            val sample = buffer[i].toDouble()
+                            sum += sample * sample
                         }
                         val rms = sqrt(sum / read).toInt()
 
-                        // Emit detection attempt log periodically or when audio presence is detected
+                        // Fast continuous detection loop (~50-100ms interval)
                         val now = System.currentTimeMillis()
-                        if (rms > 80 || now - lastAttemptLogTime > 8000) {
+                        if (now - lastAttemptLogTime >= 80 || rms > 50) {
                             lastAttemptLogTime = now
                             DebugLogger.logWakeWordDetectionAttempt("rms_level=$rms, samples=$read")
                         }
                     } else if (read < 0) {
+                        // Error code from AudioRecord indicates mic conflict or hardware error
+                        DebugLogger.logAudioSourceConflict(true, "AudioRecord read returned error code $read")
+                        DebugLogger.logAudioRecordState("error")
                         DebugLogger.logMicStreamActive(false)
-                        delay(1000)
+                        delay(100)
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "AudioRecord error", e)
+                DebugLogger.logAudioRecordState("error")
+                DebugLogger.logAudioSourceConflict(true, e.message ?: "Unknown audio exception")
                 DebugLogger.logMicStreamActive(false)
             } finally {
                 stopAudioStreamListening()

@@ -731,6 +731,27 @@ class ExampleUnitTest {
         DebugLogger.logBatteryOptimizationStatus(true)
         DebugLogger.logBatteryOptimizationStatus(false)
 
+        // 8. Part 1 New Logs: MIC_PERMISSION_GRANTED, AUDIORECORD_STATE, AUDIO_SOURCE_CONFLICT
+        DebugLogger.logMicPermissionGranted(true)
+        DebugLogger.logMicPermissionGranted(false)
+        DebugLogger.logAudioRecordState("initialized")
+        DebugLogger.logAudioRecordState("recording")
+        DebugLogger.logAudioRecordState("error")
+        DebugLogger.logAudioSourceConflict(false)
+        DebugLogger.logAudioSourceConflict(true, "another app using microphone")
+
+        // 9. Part 2 New Logs: OWNER-VOICE-ENROLLMENT 5 exact log lines
+        DebugLogger.logEnrollmentRecordStarted(true, 1)
+        DebugLogger.logEnrollmentRecordStarted(false, 6)
+        DebugLogger.logEnrollmentAudioCaptured(true, "1.0s", 125)
+        DebugLogger.logEnrollmentAudioCaptured(false, "0.0s", 0)
+        DebugLogger.logEnrollmentEmbeddingExtracted(true, "none")
+        DebugLogger.logEnrollmentEmbeddingExtracted(false, "sample too short")
+        DebugLogger.logEnrollmentProfileSaved(true, "/data/user/0/com.example/files/owner_voice_embedding.bin", 128L)
+        DebugLogger.logEnrollmentProfileSaved(false, "", 0L)
+        DebugLogger.logEnrollmentValidationResult(true, "none")
+        DebugLogger.logEnrollmentValidationResult(false, "enrollment samples empty")
+
         val logs = DebugLogger.logs.value
         assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STARTED: true" })
         assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STARTED: false" })
@@ -745,6 +766,20 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "WAKEWORD_DETECTION_ATTEMPT: rms_level=120, samples=1024" })
         assertTrue(logs.any { it.message == "BATTERY_OPTIMIZATION_STATUS: exempted" })
         assertTrue(logs.any { it.message == "BATTERY_OPTIMIZATION_STATUS: not-exempted" })
+
+        // Assertions for Part 1 & Part 2 logs
+        assertTrue(logs.any { it.message == "MIC_PERMISSION_GRANTED: true" })
+        assertTrue(logs.any { it.message == "MIC_PERMISSION_GRANTED: false" })
+        assertTrue(logs.any { it.message == "AUDIORECORD_STATE: recording" })
+        assertTrue(logs.any { it.message == "AUDIORECORD_STATE: error" })
+        assertTrue(logs.any { it.message == "AUDIO_SOURCE_CONFLICT: false" })
+        assertTrue(logs.any { it.message.startsWith("AUDIO_SOURCE_CONFLICT: true") })
+        assertTrue(logs.any { it.message == "ENROLLMENT_RECORD_STARTED: true, sample_number=1" })
+        assertTrue(logs.any { it.message == "ENROLLMENT_AUDIO_CAPTURED: true, duration=1.0s, rms_level=125" })
+        assertTrue(logs.any { it.message == "ENROLLMENT_EMBEDDING_EXTRACTED: true, error=none" })
+        assertTrue(logs.any { it.message.startsWith("ENROLLMENT_PROFILE_SAVED: true, file_path=") && it.message.contains("file_size=128") })
+        assertTrue(logs.any { it.message == "ENROLLMENT_VALIDATION_RESULT: valid, reason=none" })
+        assertTrue(logs.any { it.message == "ENROLLMENT_VALIDATION_RESULT: invalid, reason=enrollment samples empty" })
     }
 
     @Test

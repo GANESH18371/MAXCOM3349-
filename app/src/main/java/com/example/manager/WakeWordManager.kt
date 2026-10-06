@@ -262,14 +262,30 @@ object WakeWordManager {
     // =========================================================================
 
     fun startEnrollmentRecording(context: Context, slotIndex: Int): Boolean {
-        if (slotIndex !in 0..4) return false
+        val sampleNumber = slotIndex + 1
+        if (slotIndex !in 0..4) {
+            DebugLogger.logEnrollmentRecordStarted(false, sampleNumber)
+            return false
+        }
         _isEnrolling.value = true
         _activeEnrollSlot.value = slotIndex
+        DebugLogger.logEnrollmentRecordStarted(true, sampleNumber)
         DebugLogger.logInfo("Enrollment recording started for slot $slotIndex: \"${OwnerVoiceBiometricModel.ENROLLMENT_PHRASES[slotIndex]}\"")
         return true
     }
 
     fun finishEnrollmentSample(context: Context, slotIndex: Int, pcm: ShortArray): Boolean {
+        val durationSec = String.format(java.util.Locale.US, "%.1f", pcm.size.toFloat() / 16000f)
+        var sum = 0.0
+        for (s in pcm) {
+            val sample = s.toDouble()
+            sum += sample * sample
+        }
+        val rms = if (pcm.isNotEmpty()) kotlin.math.sqrt(sum / pcm.size).toInt() else 0
+        val captured = pcm.isNotEmpty()
+
+        DebugLogger.logEnrollmentAudioCaptured(captured, "${durationSec}s", rms)
+
         if (pcm.isEmpty()) return false
         enrollmentBuffers[slotIndex] = pcm
         _isEnrolling.value = false
@@ -279,13 +295,19 @@ object WakeWordManager {
     }
 
     fun finalizeEnrollment(context: Context): Boolean {
-        if (enrollmentBuffers.isEmpty()) return false
+        if (enrollmentBuffers.isEmpty()) {
+            DebugLogger.logEnrollmentValidationResult(false, "enrollment samples empty, record at least 1-3 phrases first")
+            return false
+        }
         val samples = enrollmentBuffers.values.toList()
         val success = OwnerVoiceBiometricModel.enrollFromSamples(context, samples)
         if (success) {
+            DebugLogger.logEnrollmentValidationResult(true, "none")
             refreshEnrollmentStatus(context)
             _lastVerificationStatus.value = "Owner Voice Fingerprint Saved ✓ (5 Samples)"
             DebugLogger.logInfo("Owner Voice Fingerprint finalized and active!")
+        } else {
+            DebugLogger.logEnrollmentValidationResult(false, "fingerprint consolidation or file save failed")
         }
         return success
     }
