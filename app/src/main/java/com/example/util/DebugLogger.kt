@@ -815,6 +815,28 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    // =========================================================================
+    // VOICE-CLONING TTS AUDIT LOGS (BUG 1 & BUG 2 DIAGNOSTICS)
+    // =========================================================================
+
+    /**
+     * Exact required format: "TTS_AUDIO_SOURCE: <synthesized_new / static_enrollment_file>"
+     */
+    fun logTtsAudioSource(source: String) {
+        val logLine = "TTS_AUDIO_SOURCE: $source"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "BACKGROUND_SOUND_PLAYING: <true/false, source=<kya>>"
+     */
+    fun logBackgroundSoundPlaying(playing: Boolean, source: String = "none") {
+        val logLine = "BACKGROUND_SOUND_PLAYING: $playing, source=$source"
+        safeLog(if (playing) Log.WARN else Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)
