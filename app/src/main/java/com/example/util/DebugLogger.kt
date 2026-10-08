@@ -770,43 +770,45 @@ object DebugLogger {
     // =========================================================================
 
     /**
-     * 1. Exact format: "ENROLLMENT_RECORD_STARTED: <true/false>, sample_number=<kaunsa sample, 1-5>"
+     * 1. Exact format: "ENROLLMENT_RECORD_STARTED: sample_number=<num>"
      */
     fun logEnrollmentRecordStarted(started: Boolean, sampleNumber: Int) {
-        val logLine = "ENROLLMENT_RECORD_STARTED: $started, sample_number=$sampleNumber"
+        val logLine = "ENROLLMENT_RECORD_STARTED: sample_number=$sampleNumber"
         safeLog(if (started) Log.INFO else Log.WARN, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
 
     /**
-     * 2. Exact format: "ENROLLMENT_AUDIO_CAPTURED: <true/false>, duration=<sec>, rms_level=<>"
+     * 2. Exact format: "ENROLLMENT_AUDIO_CAPTURED: duration=<sec>, rms_level=<rms>"
      */
     fun logEnrollmentAudioCaptured(captured: Boolean, duration: String, rmsLevel: Int) {
-        val logLine = "ENROLLMENT_AUDIO_CAPTURED: $captured, duration=$duration, rms_level=$rmsLevel"
+        val logLine = "ENROLLMENT_AUDIO_CAPTURED: duration=$duration, rms_level=$rmsLevel"
         safeLog(if (captured) Log.INFO else Log.WARN, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
 
     /**
-     * 3. Exact format: "ENROLLMENT_EMBEDDING_EXTRACTED: <true/false>, error=<agar fail ho to exact reason>"
+     * 3. Exact format: "ENROLLMENT_EMBEDDING_EXTRACTED: success/fail, error=<reason>"
      */
     fun logEnrollmentEmbeddingExtracted(extracted: Boolean, error: String = "none") {
-        val logLine = "ENROLLMENT_EMBEDDING_EXTRACTED: $extracted, error=$error"
+        val status = if (extracted) "success" else "fail"
+        val logLine = "ENROLLMENT_EMBEDDING_EXTRACTED: $status, error=$error"
         safeLog(if (extracted) Log.INFO else Log.WARN, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
 
     /**
-     * 4. Exact format: "ENROLLMENT_PROFILE_SAVED: <true/false>, file_path=<>, file_size=<>"
+     * 4. Exact format: "ENROLLMENT_PROFILE_SAVED: success/fail, file_path=<path>, file_size=<size>"
      */
     fun logEnrollmentProfileSaved(saved: Boolean, filePath: String, fileSize: Long) {
-        val logLine = "ENROLLMENT_PROFILE_SAVED: $saved, file_path=$filePath, file_size=$fileSize"
+        val status = if (saved) "success" else "fail"
+        val logLine = "ENROLLMENT_PROFILE_SAVED: $status, file_path=$filePath, file_size=$fileSize"
         safeLog(if (saved) Log.INFO else Log.WARN, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
 
     /**
-     * 5. Exact format: "ENROLLMENT_VALIDATION_RESULT: <valid/invalid>, reason=<exact wajah agar invalid>"
+     * 5. Exact format: "ENROLLMENT_VALIDATION_RESULT: valid/invalid, reason=<reason>"
      */
     fun logEnrollmentValidationResult(valid: Boolean, reason: String = "none") {
         val status = if (valid) "valid" else "invalid"

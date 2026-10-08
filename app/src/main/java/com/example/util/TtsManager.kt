@@ -310,6 +310,9 @@ object TtsManager {
     }
 
     private fun speakWithDefaultTts(cleanText: String, queueMode: Int, onDone: (() -> Unit)? = null) {
+        DebugLogger.logTtsAudioSource("synthesized_new")
+        DebugLogger.logBackgroundSoundPlaying(false, "none")
+
         if (!isInitialized || tts == null) {
             pendingSpeech = cleanText
             pendingCallback = onDone

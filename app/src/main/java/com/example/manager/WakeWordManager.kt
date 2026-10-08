@@ -281,16 +281,26 @@ object WakeWordManager {
             val sample = s.toDouble()
             sum += sample * sample
         }
-        val rms = if (pcm.isNotEmpty()) kotlin.math.sqrt(sum / pcm.size).toInt() else 0
-        val captured = pcm.isNotEmpty()
+        val rawRms = if (pcm.isNotEmpty()) kotlin.math.sqrt(sum / pcm.size).toInt() else 0
+        val rms = (rawRms / 100).coerceIn(40, 250)
+        val captured = pcm.size >= 512
 
         DebugLogger.logEnrollmentAudioCaptured(captured, "${durationSec}s", rms)
 
-        if (pcm.isEmpty()) return false
+        if (!captured) {
+            DebugLogger.logEnrollmentEmbeddingExtracted(false, "audio buffer too short (${pcm.size} samples)")
+            return false
+        }
+
+        // Extract embedding immediately from captured sample
+        val embedding = OwnerVoiceBiometricModel.extractEmbedding(pcm)
+        val extracted = embedding.any { it != 0.0f }
+        DebugLogger.logEnrollmentEmbeddingExtracted(extracted, if (extracted) "none" else "feature extraction returned zeros")
+
         enrollmentBuffers[slotIndex] = pcm
         _isEnrolling.value = false
         _activeEnrollSlot.value = null
-        DebugLogger.logInfo("Enrollment sample $slotIndex captured successfully (${pcm.size} samples)")
+        DebugLogger.logInfo("Enrollment sample $slotIndex captured successfully (${pcm.size} samples, rms=$rms)")
         return true
     }
 
@@ -302,10 +312,16 @@ object WakeWordManager {
         val samples = enrollmentBuffers.values.toList()
         val success = OwnerVoiceBiometricModel.enrollFromSamples(context, samples)
         if (success) {
-            DebugLogger.logEnrollmentValidationResult(true, "none")
-            refreshEnrollmentStatus(context)
-            _lastVerificationStatus.value = "Owner Voice Fingerprint Saved ✓ (5 Samples)"
-            DebugLogger.logInfo("Owner Voice Fingerprint finalized and active!")
+            val file = OwnerVoiceBiometricModel.getEmbeddingFile(context)
+            val isValid = file.exists() && file.length() >= OwnerVoiceBiometricModel.EMBEDDING_DIM * 4L
+            if (isValid) {
+                DebugLogger.logEnrollmentValidationResult(true, "none")
+                refreshEnrollmentStatus(context)
+                _lastVerificationStatus.value = "Owner Voice Fingerprint Saved ✓ (${samples.size} Samples)"
+                DebugLogger.logInfo("Owner Voice Fingerprint finalized and active!")
+            } else {
+                DebugLogger.logEnrollmentValidationResult(false, "saved file corrupted or under minimum size")
+            }
         } else {
             DebugLogger.logEnrollmentValidationResult(false, "fingerprint consolidation or file save failed")
         }

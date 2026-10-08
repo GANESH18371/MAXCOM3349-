@@ -72,7 +72,7 @@ class WakeWordBackgroundService : Service() {
             val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
             wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Max:WakeWordBackgroundService")?.apply {
                 setReferenceCounted(false)
-                acquire()
+                acquire(24 * 60 * 60 * 1000L) // Keep CPU awake for continuous wake-word capture
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error acquiring WakeLock", e)
@@ -187,7 +187,7 @@ class WakeWordBackgroundService : Service() {
 
     private fun startAudioStreamListening() {
         audioListeningJob?.cancel()
-        audioListeningJob = serviceScope.launch {
+        audioListeningJob = serviceScope.launch(Dispatchers.IO) {
             val sampleRate = 16000
             val channelConfig = AudioFormat.CHANNEL_IN_MONO
             val audioFormat = AudioFormat.ENCODING_PCM_16BIT
@@ -200,97 +200,118 @@ class WakeWordBackgroundService : Service() {
                 return@launch
             }
 
-            try {
-                // Try MediaRecorder.AudioSource.MIC first for raw uncompressed real audio levels,
-                // with fallback to VOICE_RECOGNITION
-                val sourcesToTry = intArrayOf(
-                    MediaRecorder.AudioSource.MIC,
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION
-                )
+            val bufferSizeInBytes = maxOf(minBufSize * 4, 8192)
+            // 1024 shorts at 16kHz is 64ms of audio frame (matches the ~50-100ms interval)
+            val buffer = ShortArray(1024)
+            var lastAttemptLogTime = 0L
 
-                var initializedRecord: AudioRecord? = null
-                for (source in sourcesToTry) {
-                    try {
-                        val candidate = AudioRecord(
-                            source,
-                            sampleRate,
-                            channelConfig,
-                            audioFormat,
-                            minBufSize * 4
-                        )
-                        if (candidate.state == AudioRecord.STATE_INITIALIZED) {
-                            initializedRecord = candidate
-                            break
-                        } else {
-                            candidate.release()
-                        }
-                    } catch (_: Throwable) {}
-                }
-
-                if (initializedRecord == null || initializedRecord.state != AudioRecord.STATE_INITIALIZED) {
-                    DebugLogger.logAudioRecordState("error")
-                    DebugLogger.logAudioSourceConflict(true, "AudioRecord initialization failed on all sources")
-                    DebugLogger.logMicStreamActive(false)
-                    return@launch
-                }
-
-                audioRecord = initializedRecord
-                DebugLogger.logAudioRecordState("initialized")
-
+            while (isActive) {
                 try {
-                    audioRecord?.startRecording()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to start AudioRecord", e)
-                }
+                    val hasPerm = ContextCompat.checkSelfPermission(
+                        this@WakeWordBackgroundService,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    DebugLogger.logMicPermissionGranted(hasPerm)
 
-                val isRecording = audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING
-                if (!isRecording) {
-                    DebugLogger.logAudioRecordState("error")
-                    DebugLogger.logAudioSourceConflict(true, "AudioRecord could not start recording (source in use)")
-                    DebugLogger.logMicStreamActive(false)
-                    return@launch
-                }
-
-                DebugLogger.logAudioRecordState("recording")
-                DebugLogger.logAudioSourceConflict(false)
-                DebugLogger.logMicStreamActive(true)
-
-                // 1024 shorts at 16kHz is 64ms of audio frame (matches the ~50-100ms interval)
-                val buffer = ShortArray(1024)
-                var lastAttemptLogTime = 0L
-
-                while (isActive) {
-                    val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
-                    if (read > 0) {
-                        // Calculate audio RMS to verify signal intensity
-                        var sum = 0.0
-                        for (i in 0 until read) {
-                            val sample = buffer[i].toDouble()
-                            sum += sample * sample
-                        }
-                        val rms = sqrt(sum / read).toInt()
-
-                        // Fast continuous detection loop (~50-100ms interval)
-                        val now = System.currentTimeMillis()
-                        if (now - lastAttemptLogTime >= 80 || rms > 50) {
-                            lastAttemptLogTime = now
-                            DebugLogger.logWakeWordDetectionAttempt("rms_level=$rms, samples=$read")
-                        }
-                    } else if (read < 0) {
-                        // Error code from AudioRecord indicates mic conflict or hardware error
-                        DebugLogger.logAudioSourceConflict(true, "AudioRecord read returned error code $read")
+                    if (!hasPerm) {
                         DebugLogger.logAudioRecordState("error")
                         DebugLogger.logMicStreamActive(false)
-                        delay(100)
+                        delay(2000)
+                        continue
                     }
+
+                    // Try MediaRecorder.AudioSource.MIC first for raw uncompressed real audio levels,
+                    // with fallback to VOICE_RECOGNITION and DEFAULT
+                    val sourcesToTry = intArrayOf(
+                        MediaRecorder.AudioSource.MIC,
+                        MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        MediaRecorder.AudioSource.DEFAULT
+                    )
+
+                    var initializedRecord: AudioRecord? = null
+                    for (source in sourcesToTry) {
+                        try {
+                            val candidate = AudioRecord(
+                                source,
+                                sampleRate,
+                                channelConfig,
+                                audioFormat,
+                                bufferSizeInBytes
+                            )
+                            if (candidate.state == AudioRecord.STATE_INITIALIZED) {
+                                initializedRecord = candidate
+                                break
+                            } else {
+                                candidate.release()
+                            }
+                        } catch (_: Throwable) {}
+                    }
+
+                    if (initializedRecord == null || initializedRecord.state != AudioRecord.STATE_INITIALIZED) {
+                        DebugLogger.logAudioRecordState("error")
+                        DebugLogger.logAudioSourceConflict(true, "AudioRecord initialization failed on all sources")
+                        DebugLogger.logMicStreamActive(false)
+                        delay(1000)
+                        continue
+                    }
+
+                    audioRecord = initializedRecord
+                    DebugLogger.logAudioRecordState("initialized")
+
+                    try {
+                        audioRecord?.startRecording()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to start AudioRecord", e)
+                    }
+
+                    val isRecording = audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING
+                    if (!isRecording) {
+                        DebugLogger.logAudioRecordState("error")
+                        DebugLogger.logAudioSourceConflict(true, "AudioRecord could not start recording (source in use)")
+                        DebugLogger.logMicStreamActive(false)
+                        stopAudioStreamListening()
+                        delay(1000)
+                        continue
+                    }
+
+                    DebugLogger.logAudioRecordState("recording")
+                    DebugLogger.logAudioSourceConflict(false)
+                    DebugLogger.logMicStreamActive(true)
+
+                    while (isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                        val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                        if (read > 0) {
+                            // Calculate audio RMS to verify signal intensity
+                            var sum = 0.0
+                            for (i in 0 until read) {
+                                val sample = buffer[i].toDouble()
+                                sum += sample * sample
+                            }
+                            val rms = sqrt(sum / read).toInt()
+
+                            // Continuous real-time detection frame every ~64-80ms
+                            val now = System.currentTimeMillis()
+                            if (now - lastAttemptLogTime >= 80 || rms > 40) {
+                                lastAttemptLogTime = now
+                                DebugLogger.logWakeWordDetectionAttempt("rms_level=$rms, samples=$read")
+                            }
+                        } else if (read < 0) {
+                            // Error code from AudioRecord indicates mic conflict or hardware error
+                            DebugLogger.logAudioSourceConflict(true, "AudioRecord read returned error code $read")
+                            DebugLogger.logAudioRecordState("error")
+                            DebugLogger.logMicStreamActive(false)
+                            break
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "AudioRecord error", e)
+                    DebugLogger.logAudioRecordState("error")
+                    DebugLogger.logAudioSourceConflict(true, e.message ?: "Unknown audio exception")
+                    DebugLogger.logMicStreamActive(false)
+                } finally {
+                    stopAudioStreamListening()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "AudioRecord error", e)
-                DebugLogger.logAudioRecordState("error")
-                DebugLogger.logAudioSourceConflict(true, e.message ?: "Unknown audio exception")
-                DebugLogger.logMicStreamActive(false)
-            } finally {
-                stopAudioStreamListening()
+                delay(500)
             }
         }
     }

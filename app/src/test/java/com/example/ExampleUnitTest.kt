@@ -927,4 +927,45 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "WEATHER_LOCATION_CHECK: location_known=true, asking_user=false" })
         assertTrue(logs.any { it.message == "MULTI_INTENT_ACTIONS: count=2, executed=2" })
     }
+
+    @Test
+    fun verifyThreePendingBugsLogsAndBehaviors() {
+        DebugLogger.clearLogs()
+
+        // BUG 1 logs: "MIC_PERMISSION_GRANTED", "AUDIORECORD_STATE", "AUDIO_SOURCE_CONFLICT"
+        DebugLogger.logMicPermissionGranted(true)
+        DebugLogger.logAudioRecordState("recording")
+        DebugLogger.logAudioSourceConflict(false)
+        DebugLogger.logAudioSourceConflict(true, "Microphone in use")
+
+        // BUG 2 logs: "ENROLLMENT_RECORD_STARTED", "ENROLLMENT_AUDIO_CAPTURED", "ENROLLMENT_EMBEDDING_EXTRACTED", "ENROLLMENT_PROFILE_SAVED", "ENROLLMENT_VALIDATION_RESULT"
+        DebugLogger.logEnrollmentRecordStarted(started = true, sampleNumber = 1)
+        DebugLogger.logEnrollmentAudioCaptured(captured = true, duration = "1.5s", rmsLevel = 120)
+        DebugLogger.logEnrollmentEmbeddingExtracted(extracted = true, error = "none")
+        DebugLogger.logEnrollmentProfileSaved(saved = true, filePath = "/data/user/0/com.example/files/owner_voice_embedding.bin", fileSize = 128L)
+        DebugLogger.logEnrollmentValidationResult(valid = true, reason = "none")
+
+        // BUG 3 logs: "TTS_AUDIO_SOURCE: synthesized_new/static_file", "BACKGROUND_SOUND_PLAYING: true/false, source=<kya>"
+        DebugLogger.logTtsAudioSource("synthesized_new")
+        DebugLogger.logBackgroundSoundPlaying(playing = false, source = "none")
+
+        val logs = DebugLogger.logs.value
+
+        // BUG 1 assertions
+        assertTrue(logs.any { it.message == "MIC_PERMISSION_GRANTED: true" })
+        assertTrue(logs.any { it.message == "AUDIORECORD_STATE: recording" })
+        assertTrue(logs.any { it.message == "AUDIO_SOURCE_CONFLICT: false" })
+        assertTrue(logs.any { it.message == "AUDIO_SOURCE_CONFLICT: true, Microphone in use" })
+
+        // BUG 2 assertions
+        assertTrue(logs.any { it.message == "ENROLLMENT_RECORD_STARTED: sample_number=1" })
+        assertTrue(logs.any { it.message == "ENROLLMENT_AUDIO_CAPTURED: duration=1.5s, rms_level=120" })
+        assertTrue(logs.any { it.message == "ENROLLMENT_EMBEDDING_EXTRACTED: success, error=none" })
+        assertTrue(logs.any { it.message == "ENROLLMENT_PROFILE_SAVED: success, file_path=/data/user/0/com.example/files/owner_voice_embedding.bin, file_size=128" })
+        assertTrue(logs.any { it.message == "ENROLLMENT_VALIDATION_RESULT: valid, reason=none" })
+
+        // BUG 3 assertions
+        assertTrue(logs.any { it.message == "TTS_AUDIO_SOURCE: synthesized_new" })
+        assertTrue(logs.any { it.message == "BACKGROUND_SOUND_PLAYING: false, source=none" })
+    }
 }
