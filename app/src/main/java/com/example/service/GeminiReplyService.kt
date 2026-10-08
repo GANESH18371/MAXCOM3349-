@@ -11,6 +11,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 data class ComprehensionAction(
@@ -231,6 +232,7 @@ object GeminiReplyService {
 
                 Action types:
                 - open_app: target = app ka naam
+                - screen_task: target = screen interaction task jaise "gana search karke play karo", "video chalao", "message bhejo"
                 - toggle: target = torch_on, torch_off, wifi_on, wifi_off, bluetooth_on, bluetooth_off, volume_up, volume_down, volume_mute, brightness_toggle, dnd_on, dnd_off, hotspot_on, hotspot_off, mobile_data_toggle
                 - answer: sawaal ya baatcheet. News maange to target = "news_brief"
                 - unclear: sach mein samajh na aaye to ek chhota sa sawaal poochho
@@ -585,17 +587,23 @@ object GeminiReplyService {
     fun generateLocalComprehensionFallback(userQuery: String): GeminiComprehensionResult {
         val lower = userQuery.lowercase()
 
-        // 1. Compound multi-intent local detection ("YouTube kholo aur volume badha do", "torch aur wifi", etc.)
-        if (lower.contains(" aur ") || lower.contains(" and ") || lower.contains(" phir ")) {
-            val parts = lower.split(Regex(" aur | and | phir "))
+        // 1. Compound multi-intent local detection ("YouTube kholo aur volume badha do", "YouTube kholo aur gana chalao", etc.)
+        val connectorRegex = Regex(" aur | and | phir | fir | tatha | then ")
+        if (connectorRegex.containsMatchIn(lower)) {
+            val parts = lower.split(connectorRegex)
             if (parts.size >= 2) {
                 val act1 = extractFallbackAction(parts[0].trim())
                 val act2 = extractFallbackAction(parts[1].trim())
                 if (act1 != null && act2 != null) {
+                    val reply = if (act2.type == "screen_task") {
+                        "Haan bilkul, main app khol kar turant command execute kar raha hoon."
+                    } else {
+                        "Bilkul! Main dono kaam ek saath kar raha hoon."
+                    }
                     return GeminiComprehensionResult(
                         understoodIntent = "Multiple sequential actions",
                         actions = listOf(act1, act2),
-                        replyText = "Bilkul! Main dono kaam ek saath kar raha hoon."
+                        replyText = reply
                     )
                 }
             }
@@ -716,6 +724,23 @@ object GeminiReplyService {
             p.contains("bluetooth") && (p.contains("off") || p.contains("band")) -> ComprehensionAction("toggle", "bluetooth_off")
             p.contains("brightness") -> ComprehensionAction("toggle", "brightness_toggle")
             p.contains("dnd") -> ComprehensionAction("toggle", "dnd_on")
+            // Screen task & media control (songs, videos, play, search)
+            p.contains("gaana") || p.contains("gana") || p.contains("song") || p.contains("music") ||
+            p.contains("chalao") || p.contains("play") || p.contains("bajao") || p.contains("baja do") ||
+            p.contains("chala do") || p.contains("search") -> {
+                ComprehensionAction("screen_task", part.trim())
+            }
+            p.contains("pause") || p.contains("stop") || p.contains("next") || p.contains("previous") -> {
+                ComprehensionAction("screen_task", part.trim())
+            }
+            // General app open
+            p.contains("kholo") || p.contains("khol") || p.contains("open") -> {
+                val appWords = listOf("spotify", "chrome", "instagram", "facebook", "camera", "settings", "telegram")
+                val found = appWords.find { p.contains(it) }
+                if (found != null) {
+                    ComprehensionAction("open_app", found.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() })
+                } else null
+            }
             else -> null
         }
     }

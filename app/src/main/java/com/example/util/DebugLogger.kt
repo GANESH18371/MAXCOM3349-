@@ -837,6 +837,37 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    // =========================================================================
+    // CONVERSATION-FLOW & MULTI-INTENT DEBUG LOGS
+    // =========================================================================
+
+    /**
+     * Exact required format: "CONVERSATION_WINDOW_OPEN: duration=<sec>, follow_up_detected=<bool>"
+     */
+    fun logConversationWindowOpen(durationSec: Int, followUpDetected: Boolean) {
+        val logLine = "CONVERSATION_WINDOW_OPEN: duration=$durationSec, follow_up_detected=$followUpDetected"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "WEATHER_LOCATION_CHECK: location_known=<bool>, asking_user=<bool>"
+     */
+    fun logWeatherLocationCheck(locationKnown: Boolean, askingUser: Boolean) {
+        val logLine = "WEATHER_LOCATION_CHECK: location_known=$locationKnown, asking_user=$askingUser"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "MULTI_INTENT_ACTIONS: count=<kitne actions mile>, executed=<kitne actually execute hue>"
+     */
+    fun logMultiIntentActions(count: Int, executed: Int) {
+        val logLine = "MULTI_INTENT_ACTIONS: count=$count, executed=$executed"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

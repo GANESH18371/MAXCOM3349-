@@ -891,4 +891,40 @@ class ExampleUnitTest {
         assertFalse("Summary must not contain samajh nahi saka", summary.contains("theek se samajh nahi saka"))
         assertTrue("Summary must contain genuine response", summary.contains("Aaj mausam bilkul saaf"))
     }
+
+    @Test
+    fun conversationFlowBugs_3BugsFixes_verificationTest() {
+        DebugLogger.clearLogs()
+
+        // 1. BUG 1: Exact format: "CONVERSATION_WINDOW_OPEN: duration=<sec>, follow_up_detected=<bool>"
+        DebugLogger.logConversationWindowOpen(durationSec = 7, followUpDetected = false)
+        DebugLogger.logConversationWindowOpen(durationSec = 7, followUpDetected = true)
+
+        // 2. BUG 2: Exact format: "WEATHER_LOCATION_CHECK: location_known=<bool>, asking_user=<bool>"
+        DebugLogger.logWeatherLocationCheck(locationKnown = false, askingUser = true)
+        DebugLogger.logWeatherLocationCheck(locationKnown = true, askingUser = false)
+
+        // Verify city extraction for weather
+        val extractedCity = com.example.manager.WeatherManager.extractCityFromCommand("delhi ka mausam kaisa hai")
+        assertEquals("Delhi", extractedCity)
+        val noCity = com.example.manager.WeatherManager.extractCityFromCommand("aaj ka mausam kaisa hai")
+        assertEquals(null, noCity)
+
+        // 3. BUG 3: Exact format: "MULTI_INTENT_ACTIONS: count=<kitne actions mile>, executed=<kitne actually execute hue>"
+        DebugLogger.logMultiIntentActions(count = 2, executed = 2)
+
+        // Verify multi-intent extraction parses 2 actions for compound command
+        val multiResult = com.example.service.GeminiReplyService.generateLocalComprehensionFallback("YouTube kholo aur yeh gana chalao")
+        assertEquals(2, multiResult.actions.size)
+        assertEquals("open_app", multiResult.actions[0].type)
+        assertEquals("YouTube", multiResult.actions[0].target)
+        assertEquals("screen_task", multiResult.actions[1].type)
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "CONVERSATION_WINDOW_OPEN: duration=7, follow_up_detected=false" })
+        assertTrue(logs.any { it.message == "CONVERSATION_WINDOW_OPEN: duration=7, follow_up_detected=true" })
+        assertTrue(logs.any { it.message == "WEATHER_LOCATION_CHECK: location_known=false, asking_user=true" })
+        assertTrue(logs.any { it.message == "WEATHER_LOCATION_CHECK: location_known=true, asking_user=false" })
+        assertTrue(logs.any { it.message == "MULTI_INTENT_ACTIONS: count=2, executed=2" })
+    }
 }

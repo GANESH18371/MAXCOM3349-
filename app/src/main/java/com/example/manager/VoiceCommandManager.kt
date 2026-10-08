@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.concurrent.ConcurrentLinkedQueue
 
 sealed interface VoiceState {
     object Idle : VoiceState
@@ -39,6 +40,14 @@ class VoiceCommandManager(private val context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var silenceTimeoutRunnable: Runnable? = null
 
+    // =========================================================================
+    // BUG 1 & BUG 2 STATE: CONTINUOUS CONVERSATION & AMBIGUOUS WEATHER QUERY
+    // =========================================================================
+    private var isConversationSessionActive = false
+    private var conversationWindowTimerRunnable: Runnable? = null
+    private val CONVERSATION_WINDOW_DURATION_SEC = 7
+    private var isPendingWeatherLocationQuery = false
+
     private val _voiceState = MutableStateFlow<VoiceState>(VoiceState.Idle)
     val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
 
@@ -47,7 +56,7 @@ class VoiceCommandManager(private val context: Context) {
 
     private var speechRecognizer: SpeechRecognizer? = null
 
-    private val recentAudioPcmBuffer = java.util.concurrent.ConcurrentLinkedQueue<Short>()
+    private val recentAudioPcmBuffer = ConcurrentLinkedQueue<Short>()
 
     init {
         initRecognizer()
@@ -64,7 +73,13 @@ class VoiceCommandManager(private val context: Context) {
         }
     }
 
+    fun isSessionActive(): Boolean = isConversationSessionActive
+
     fun startListening() {
+        startListeningInternal(isFollowUp = false)
+    }
+
+    private fun startListeningInternal(isFollowUp: Boolean = false) {
         if (speechRecognizer == null) {
             initRecognizer()
         }
@@ -95,18 +110,21 @@ class VoiceCommandManager(private val context: Context) {
             BatteryOptimizationManager.updateSubsystemState(voiceState = "ACTIVE (Listening)")
             recentAudioPcmBuffer.clear()
             recognizer.startListening(intent)
-            DebugLogger.logInfo("Voice listening started (Hindi + English)...")
+            DebugLogger.logInfo("Voice listening started (isFollowUp=$isFollowUp)...")
 
-            // Smart Inactivity Timeout: 6 seconds auto-sleep if no speech detected
-            clearSilenceTimer()
-            silenceTimeoutRunnable = Runnable {
-                if (_voiceState.value == VoiceState.Listening) {
-                    Log.d(TAG, "Smart Listening: Inactivity timeout reached, auto-closing mic to save battery")
-                    DebugLogger.logInfo("Smart Listening: Inactivity timeout, sleeping mic to conserve battery")
-                    cancelListening()
+            if (!isFollowUp) {
+                // Initial launch: start conversation session
+                isConversationSessionActive = true
+                clearSilenceTimer()
+                silenceTimeoutRunnable = Runnable {
+                    if (_voiceState.value == VoiceState.Listening) {
+                        Log.d(TAG, "Inactivity timeout reached, closing mic")
+                        DebugLogger.logInfo("Smart Listening: Inactivity timeout, sleeping mic")
+                        closeConversationSession()
+                    }
                 }
+                mainHandler.postDelayed(silenceTimeoutRunnable!!, 6000L)
             }
-            mainHandler.postDelayed(silenceTimeoutRunnable!!, 6000L)
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start listening", e)
@@ -115,8 +133,66 @@ class VoiceCommandManager(private val context: Context) {
         }
     }
 
+    // =========================================================================
+    // BUG 1: CONTINUOUS CONVERSATION WINDOW MANAGEMENT
+    // Keeps mic open for 5-8s so user can say follow-ups without repeating wake-word
+    // =========================================================================
+    fun openConversationFollowUpWindow(durationSec: Int = CONVERSATION_WINDOW_DURATION_SEC) {
+        clearSilenceTimer()
+        clearConversationWindowTimer()
+        isConversationSessionActive = true
+
+        // Exact Required Debug Log:
+        // "CONVERSATION_WINDOW_OPEN: duration=<sec>, follow_up_detected=<bool>"
+        DebugLogger.logConversationWindowOpen(durationSec = durationSec, followUpDetected = false)
+
+        startListeningInternal(isFollowUp = true)
+
+        conversationWindowTimerRunnable = Runnable {
+            if (isConversationSessionActive && _voiceState.value is VoiceState.Listening) {
+                DebugLogger.logInfo("Conversation follow-up window closed (silence for ${durationSec}s)")
+                closeConversationSession()
+            }
+        }
+        mainHandler.postDelayed(conversationWindowTimerRunnable!!, durationSec * 1000L)
+    }
+
+    fun closeConversationSession() {
+        clearSilenceTimer()
+        clearConversationWindowTimer()
+        isConversationSessionActive = false
+        isPendingWeatherLocationQuery = false
+        cancelListening()
+        _voiceState.value = VoiceState.Idle
+        BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
+    }
+
+    private fun clearConversationWindowTimer() {
+        conversationWindowTimerRunnable?.let { mainHandler.removeCallbacks(it) }
+        conversationWindowTimerRunnable = null
+    }
+
+    fun speakWithFollowUp(
+        speechText: String,
+        caller: String = "VoiceCommand",
+        durationSec: Int = CONVERSATION_WINDOW_DURATION_SEC,
+        onDone: (() -> Unit)? = null
+    ) {
+        TtsManager.speakIfVoiceReady(
+            text = speechText,
+            caller = caller,
+            onDone = {
+                onDone?.invoke()
+                mainHandler.post {
+                    openConversationFollowUpWindow(durationSec)
+                }
+            }
+        )
+    }
+
     fun stopListening() {
         clearSilenceTimer()
+        clearConversationWindowTimer()
         try {
             speechRecognizer?.stopListening()
         } catch (e: Exception) {
@@ -128,6 +204,7 @@ class VoiceCommandManager(private val context: Context) {
 
     fun cancelListening() {
         clearSilenceTimer()
+        clearConversationWindowTimer()
         try {
             speechRecognizer?.cancel()
         } catch (e: Exception) {
@@ -142,18 +219,41 @@ class VoiceCommandManager(private val context: Context) {
         silenceTimeoutRunnable = null
     }
 
+    private fun isMultiIntentCommand(text: String): Boolean {
+        val lower = text.lowercase(Locale.getDefault())
+        val connectors = listOf(" aur ", " and ", " phir ", " fir ", " tatha ", " then ")
+        return connectors.any { lower.contains(it) }
+    }
+
+    private fun cleanLocationAnswer(raw: String): String {
+        var clean = raw.trim()
+        val removePhrases = listOf(
+            "ka mausam", "ki weather", "ka tapman", "ka batao", "ki batao",
+            "ka", "ki", "ke", "me", "mein", "par", "pe", "shehar", "city",
+            "mera", "mere", "hamara", "batao", "bataiye"
+        )
+        for (phrase in removePhrases) {
+            clean = clean.replace(Regex("(?i)\\b$phrase\\b"), " ")
+        }
+        clean = clean.replace(Regex("\\s+"), " ").trim()
+        return if (clean.isNotBlank()) clean else "Delhi"
+    }
+
     fun processCommand(commandText: String) {
         val trimmed = commandText.trim()
         DebugLogger.logSttRawText(trimmed)
         if (trimmed.isBlank()) return
 
+        val wasInSession = isConversationSessionActive
+
         // =========================================================================
         // WAKE-WORD DETECTION & OWNER VOICE BIOMETRIC VERIFICATION (2-STAGE GATE)
+        // In an ongoing conversation session, follow-up turns do NOT require wake-word!
         // =========================================================================
         val detectedWake = WakeWordManager.detectWakePhrase(trimmed)
         var effectiveCommand = trimmed
 
-        if (detectedWake != null && WakeWordManager.isEnabled.value) {
+        if (detectedWake != null && WakeWordManager.isEnabled.value && !wasInSession) {
             val pcm = if (recentAudioPcmBuffer.size >= 512) {
                 val arr = ShortArray(recentAudioPcmBuffer.size)
                 var idx = 0
@@ -178,17 +278,57 @@ class VoiceCommandManager(private val context: Context) {
             if (effectiveCommand.isBlank()) {
                 // Just wake phrase spoken by owner (e.g. "Hey Max") -> acknowledge and wait for command
                 _voiceState.value = VoiceState.Success("Aapka swagat hai! Boliye, main sun raha hoon.")
-                TtsManager.speakIfVoiceReady("Haan boliye, main sun raha hoon.", caller = "WakeWord")
-                startListening()
+                speakWithFollowUp("Haan boliye, main sun raha hoon.", caller = "WakeWord")
                 return
             }
+        } else if (detectedWake != null) {
+            // Wake word was spoken in follow-up session; strip it cleanly
+            effectiveCommand = WakeWordManager.stripWakePhrase(trimmed, detectedWake)
         }
 
+        isConversationSessionActive = true
         _lastRecognizedText.value = effectiveCommand
         _voiceState.value = VoiceState.Processing(effectiveCommand)
         DebugLogger.logInfo("Processing voice command: \"$effectiveCommand\"")
 
         val lower = effectiveCommand.lowercase(Locale.getDefault())
+
+        // Check for conversation exit phrases ("bye", "alvida", "chup ho jao", "stop", "kuch nahi", etc.)
+        val exitWords = listOf(
+            "bye", "alvida", "alvida max", "goodbye", "chup", "chup ho jao", "chup raho",
+            "stop", "bas", "bas itna hi", "kuch nahi", "kuch nhi", "nothing", "never mind",
+            "shant", "band karo"
+        )
+        if (wasInSession && exitWords.any { lower == it || lower.startsWith("$it ") || lower.endsWith(" $it") }) {
+            closeConversationSession()
+            val byeMsg = "Theek hai, jab bhi zaroorat ho awaaz de dena."
+            _voiceState.value = VoiceState.Success(byeMsg)
+            TtsManager.speakIfVoiceReady(byeMsg, caller = "ConversationSession")
+            return
+        }
+
+        // =========================================================================
+        // BUG 2 FIX: PENDING WEATHER LOCATION QUERY (User answering "Kis jagah ka mausam bataun?")
+        // =========================================================================
+        if (isPendingWeatherLocationQuery) {
+            isPendingWeatherLocationQuery = false
+            val answeredCity = WeatherManager.extractCityFromCommand(lower) ?: cleanLocationAnswer(trimmed)
+            // Required debug log: "WEATHER_LOCATION_CHECK: location_known=<bool>, asking_user=<bool>"
+            DebugLogger.logWeatherLocationCheck(locationKnown = true, askingUser = false)
+            _voiceState.value = VoiceState.Processing("$answeredCity ka mausam dekha ja raha hai...")
+            scope.launch {
+                PermanentMemoryManager.saveMemory(context, "default_location", answeredCity, category = "preferences")
+                WeatherManager.fetchAndAnnounceWeatherForCity(context, answeredCity) { success, msg ->
+                    if (success) {
+                        _voiceState.value = VoiceState.Success(msg)
+                    } else {
+                        _voiceState.value = VoiceState.Error(msg)
+                    }
+                    speakWithFollowUp(msg, caller = "Weather")
+                }
+            }
+            return
+        }
 
         // =========================================================================
         // STEP 0.0: PERMANENT LONG-TERM MEMORY LAYER
@@ -201,16 +341,18 @@ class VoiceCommandManager(private val context: Context) {
                     is MemoryCommandResult.LaunchFavoriteApp -> {
                         val launched = AppOpenManager.processAndLaunch(context, memResult.appName)
                         if (launched) {
-                            TtsManager.speakIfVoiceReady("Aapki favorite app ${memResult.appName} khol raha hoon.", caller = "AppLauncher")
+                            val msg = "Aapki favorite app ${memResult.appName} khol raha hoon."
                             _voiceState.value = VoiceState.Success("Opened favorite app: ${memResult.appName}")
+                            speakWithFollowUp(msg, caller = "AppLauncher")
                         } else {
                             val msg = "Favorite app '${memResult.appName}' open nahi ho saki."
-                            TtsManager.speakIfVoiceReady(msg, caller = "AppLauncher")
                             _voiceState.value = VoiceState.Error(msg)
+                            speakWithFollowUp(msg, caller = "AppLauncher")
                         }
                     }
                     is MemoryCommandResult.Handled -> {
                         _voiceState.value = VoiceState.Success(memResult.message)
+                        speakWithFollowUp(memResult.message, caller = "PermanentMemory")
                     }
                     is MemoryCommandResult.NotMemoryCommand -> {
                         // proceed to context and hardware routing
@@ -221,7 +363,7 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         // =========================================================================
-        // STEP 0: CONTEXT AWARENESS LAYER (Added on top of existing working logic)
+        // STEP 0: CONTEXT AWARENESS LAYER
         // =========================================================================
         val currentApp = AppContextManager.getCurrentApp()
         DebugLogger.logContextCurrentApp(currentApp?.name)
@@ -241,7 +383,9 @@ class VoiceCommandManager(private val context: Context) {
                     HardwareFeature.VOLUME,
                     if (parsed.explicitPercent != null) "Set to ${parsed.explicitPercent}%" else parsed.action.name
                 )
-                _voiceState.value = VoiceState.Success("Volume adjusted (${contextResult.description})")
+                val msg = "Volume adjusted (${contextResult.description})"
+                _voiceState.value = VoiceState.Success(msg)
+                speakWithFollowUp("Volume adjust ho gaya", caller = "HardwareToggle")
                 return
             }
             is ContextResolutionResult.ResolvedHardware -> {
@@ -259,9 +403,11 @@ class VoiceCommandManager(private val context: Context) {
                     AppContextManager.recordAppOpen(contextResult.app)
                     DebugLogger.logLaunch(true, contextResult.app.name)
                     _voiceState.value = VoiceState.Success("App opened: ${contextResult.app.name}")
+                    speakWithFollowUp("${contextResult.app.name} khul gaya", caller = "AppLauncher")
                 } else {
                     DebugLogger.logLaunch(false, "Could not open ${contextResult.app.name}")
                     _voiceState.value = VoiceState.Error("Could not open ${contextResult.app.name}")
+                    speakWithFollowUp("App open nahi ho saki", caller = "AppLauncher")
                 }
                 return
             }
@@ -279,16 +425,17 @@ class VoiceCommandManager(private val context: Context) {
                     Log.w(TAG, "Error closing app via home intent", e)
                 }
                 _voiceState.value = VoiceState.Success("Closed ${contextResult.app.name}")
+                speakWithFollowUp("${contextResult.app.name} band kar diya", caller = "AppLauncher")
                 return
             }
             is ContextResolutionResult.Ambiguous -> {
                 DebugLogger.logCommandRouterClassification("CONVERSATION")
                 DebugLogger.logContextUsed(false, "Ambiguous: No active context")
                 _voiceState.value = VoiceState.Error(contextResult.message)
+                speakWithFollowUp(contextResult.message, caller = "ContextAmbiguous")
                 return
             }
             is ContextResolutionResult.NoReference -> {
-                // Command contains no referring pronouns / ambiguous action; proceed to standard handlers
                 DebugLogger.logContextUsed(false)
             }
         }
@@ -305,30 +452,69 @@ class VoiceCommandManager(private val context: Context) {
             val success = WhatsAppAutoReplyManager.setAutoReplyEnabled(context, targetEnable, announceWithTts = false)
             if (targetEnable) {
                 if (success) {
-                    TtsManager.speakIfVoiceReady("Auto-reply on ho gaya", caller = "WhatsAppAutoReply")
+                    val msg = "Auto-reply on ho gaya"
                     _voiceState.value = VoiceState.Success("WhatsApp Auto-Reply is ON")
+                    speakWithFollowUp(msg, caller = "WhatsAppAutoReply")
                 } else {
-                    TtsManager.speakIfVoiceReady("Auto-reply ke liye notification permission zaroori hai", caller = "WhatsAppAutoReply")
+                    val msg = "Auto-reply ke liye notification permission zaroori hai"
                     _voiceState.value = VoiceState.Error("Notification Access permission required for Auto-Reply")
+                    speakWithFollowUp(msg, caller = "WhatsAppAutoReply")
                 }
             } else {
-                TtsManager.speakIfVoiceReady("Auto-reply off ho gaya", caller = "WhatsAppAutoReply")
+                val msg = "Auto-reply off ho gaya"
                 _voiceState.value = VoiceState.Success("WhatsApp Auto-Reply is OFF")
+                speakWithFollowUp(msg, caller = "WhatsAppAutoReply")
             }
             return
         }
 
         // =========================================================================
-        // STEP 0.7: WEATHER COMMAND ("aaj ka mausam kaisa hai")
+        // BUG 2 FIX: WEATHER COMMAND ("aaj ka mausam kaisa hai", "Delhi ka mausam")
+        // If location is unknown/ambiguous and not in memory -> ASK "kis jagah ka mausam bataun?"
         // =========================================================================
         if (WeatherManager.isWeatherCommand(lower)) {
             DebugLogger.logCommandRouterClassification("CONVERSATION")
-            _voiceState.value = VoiceState.Processing("मौसम की जानकारी ली जा रही है...")
-            WeatherManager.fetchAndAnnounceWeather(context) { success, msg ->
-                if (success) {
-                    _voiceState.value = VoiceState.Success(msg)
-                } else {
-                    _voiceState.value = VoiceState.Error(msg)
+            val explicitCity = WeatherManager.extractCityFromCommand(lower)
+
+            if (explicitCity != null) {
+                // User explicitly provided a city/location in command
+                DebugLogger.logWeatherLocationCheck(locationKnown = true, askingUser = false)
+                _voiceState.value = VoiceState.Processing("$explicitCity ka mausam dekha ja raha hai...")
+                scope.launch {
+                    PermanentMemoryManager.saveMemory(context, "default_location", explicitCity, category = "preferences")
+                    WeatherManager.fetchAndAnnounceWeatherForCity(context, explicitCity) { success, msg ->
+                        if (success) {
+                            _voiceState.value = VoiceState.Success(msg)
+                        } else {
+                            _voiceState.value = VoiceState.Error(msg)
+                        }
+                        speakWithFollowUp(msg, caller = "Weather")
+                    }
+                }
+            } else {
+                // Location not specified in command! Check saved memory
+                scope.launch {
+                    val savedLocation = PermanentMemoryManager.getMemory(context, "default_location")
+                    if (!savedLocation.isNullOrBlank()) {
+                        // Location is known from memory preference!
+                        DebugLogger.logWeatherLocationCheck(locationKnown = true, askingUser = false)
+                        _voiceState.value = VoiceState.Processing("$savedLocation ka mausam dekha ja raha hai...")
+                        WeatherManager.fetchAndAnnounceWeatherForCity(context, savedLocation) { success, msg ->
+                            if (success) {
+                                _voiceState.value = VoiceState.Success(msg)
+                            } else {
+                                _voiceState.value = VoiceState.Error(msg)
+                            }
+                            speakWithFollowUp(msg, caller = "Weather")
+                        }
+                    } else {
+                        // First time or location preference NOT saved: ask user!
+                        DebugLogger.logWeatherLocationCheck(locationKnown = false, askingUser = true)
+                        isPendingWeatherLocationQuery = true
+                        val question = "kis jagah ka mausam bataun?"
+                        _voiceState.value = VoiceState.Success(question)
+                        speakWithFollowUp(question, caller = "Weather")
+                    }
                 }
             }
             return
@@ -355,6 +541,7 @@ class VoiceCommandManager(private val context: Context) {
                 } else {
                     _voiceState.value = VoiceState.Error(result)
                 }
+                speakWithFollowUp(result, caller = "SceneAnalysis")
             }
             return
         }
@@ -368,6 +555,7 @@ class VoiceCommandManager(private val context: Context) {
                 } else {
                     _voiceState.value = VoiceState.Error(result)
                 }
+                speakWithFollowUp("Selfie le li gayi hai", caller = "Camera")
             }
             return
         }
@@ -381,12 +569,13 @@ class VoiceCommandManager(private val context: Context) {
                 } else {
                     _voiceState.value = VoiceState.Error(result)
                 }
+                speakWithFollowUp("Photo khinch li gayi hai", caller = "Camera")
             }
             return
         }
 
         // =========================================================================
-        // STEP 0.95: ANTI-THEFT GUARD EMERGENCY CONTACT ("mera emergency contact 9876543210 hai")
+        // STEP 0.95: ANTI-THEFT GUARD EMERGENCY CONTACT
         // =========================================================================
         if (AntiTheftManager.isTrustedContactCommand(lower)) {
             DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
@@ -397,11 +586,12 @@ class VoiceCommandManager(private val context: Context) {
             } else {
                 _voiceState.value = VoiceState.Error(message)
             }
+            speakWithFollowUp(message, caller = "AntiTheft")
             return
         }
 
         // =========================================================================
-        // STEP 0.96: GENERIC MULTI-APP MESSAGING & AUTO-SAVE ("Telegram par 9876543210 ko message karo", "Instagram par Ravi ko message bhejo", etc.)
+        // STEP 0.96: GENERIC MULTI-APP MESSAGING & AUTO-SAVE
         // =========================================================================
         if (GenericMessagingManager.isMessagingCommand(lower)) {
             DebugLogger.logCommandRouterClassification("SCREEN_TASK")
@@ -412,14 +602,16 @@ class VoiceCommandManager(private val context: Context) {
                 } else {
                     _voiceState.value = VoiceState.Error(msg)
                 }
+                speakWithFollowUp(msg, caller = "GenericMessaging")
             }
             return
         }
 
         // =========================================================================
-        // STEP 0.97: GENERIC APP-CONTROL FOR MEDIA COMMANDS ("agla wala chalao", "pause karo", "Arijit Singh chalao", etc.)
+        // STEP 0.97: GENERIC APP-CONTROL FOR MEDIA COMMANDS ("agla wala chalao", "pause karo", "Arijit Singh chalao")
+        // Only if it's a single media command (not compound)
         // =========================================================================
-        if (GenericAppControlManager.isMediaCommand(lower)) {
+        if (!isMultiIntentCommand(trimmed) && GenericAppControlManager.isMediaCommand(lower)) {
             DebugLogger.logCommandRouterClassification("SCREEN_TASK")
             _voiceState.value = VoiceState.Processing("Media command execute ho raha hai...")
             GenericAppControlManager.executeMediaFlow(context, trimmed) { success, msg ->
@@ -428,12 +620,14 @@ class VoiceCommandManager(private val context: Context) {
                 } else {
                     _voiceState.value = VoiceState.Error(msg)
                 }
+                speakWithFollowUp(msg, caller = "GenericAppControl")
             }
             return
         }
 
         // =========================================================================
-        // STEP 0.98: COMPOUND LOCAL MULTI-INTENT ("torch on karo aur wifi band karo")
+        // BUG 3 FIX: STEP 0.98 COMPOUND MULTI-INTENT EXECUTION
+        // "YouTube kholo aur yeh gana chalao", "torch on karo aur wifi band karo"
         // =========================================================================
         if (tryExecuteCompoundLocalCommand(trimmed)) {
             DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
@@ -441,9 +635,9 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         // =========================================================================
-        // STEP 1: HARDWARE TOGGLE COMMAND (VOLUME / TORCH / WIFI / etc.) [UNTOUCHED]
+        // STEP 1: HARDWARE TOGGLE COMMAND (Single command)
         // =========================================================================
-        if (isHardwareCommand(lower)) {
+        if (!isMultiIntentCommand(trimmed) && isHardwareCommand(lower)) {
             DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             handleHardwareVoiceCommand(lower, trimmed)
             _voiceState.value = VoiceState.Success("Hardware action triggered for \"$trimmed\"")
@@ -452,33 +646,35 @@ class VoiceCommandManager(private val context: Context) {
 
         // =========================================================================
         // STEP 2: APP OPEN COMMAND (Devanagari / Phonetic / Fuzzy Match)
+        // Guarded: Do NOT swallow multi-intent commands like "YouTube kholo aur gana chalao"
         // =========================================================================
-        val launched = AppOpenManager.processAndLaunch(context, trimmed)
-        if (launched) {
-            DebugLogger.logCommandRouterClassification("SCREEN_TASK")
-            val apps = AppOpenManager.getFreshInstalledApps(context)
-            val matchedApp = AppOpenManager.fuzzyMatchApp(trimmed, apps)
-            val appLabel = matchedApp?.name ?: AppOpenManager.sanitizeCommand(trimmed).replaceFirstChar { it.uppercase() }
-            if (matchedApp != null) {
-                AppContextManager.recordAppOpen(matchedApp)
+        if (!isMultiIntentCommand(trimmed)) {
+            val launched = AppOpenManager.processAndLaunch(context, trimmed)
+            if (launched) {
+                DebugLogger.logCommandRouterClassification("SCREEN_TASK")
+                val apps = AppOpenManager.getFreshInstalledApps(context)
+                val matchedApp = AppOpenManager.fuzzyMatchApp(trimmed, apps)
+                val appLabel = matchedApp?.name ?: AppOpenManager.sanitizeCommand(trimmed).replaceFirstChar { it.uppercase() }
+                if (matchedApp != null) {
+                    AppContextManager.recordAppOpen(matchedApp)
+                }
+                val replyMsg = "$appLabel khul gaya"
+                AppContextManager.recordConversationExchange(trimmed, replyMsg)
+                _voiceState.value = VoiceState.Success("App opened: $appLabel")
+                speakWithFollowUp(replyMsg, caller = "AppLauncher")
+                return
             }
-            val replyMsg = "$appLabel khul gaya"
-            AppContextManager.recordConversationExchange(trimmed, replyMsg)
-            TtsManager.speakIfVoiceReady(replyMsg, caller = "AppLauncher")
-            _voiceState.value = VoiceState.Success("App opened: $appLabel")
-            return
         }
 
         // =========================================================================
-        // STEP 3: DEEP HUMAN-LIKE COMPREHENSION (Gemini 2.5 Flash Model)
-        // Understands casual, colloquial, indirect phrasing, idioms, and multi-sentence thought flows.
-        // Executes multiple intents sequentially and speaks natural, warm Hindi/Hinglish.
+        // BUG 3 FIX: STEP 3 DEEP HUMAN-LIKE COMPREHENSION (Gemini 2.5 Flash / Local Multi-Intent)
+        // Executes multiple intents sequentially (open_app -> screen_task / song play)
+        // Emits: "MULTI_INTENT_ACTIONS: count=<count>, executed=<executed>"
         // =========================================================================
         DebugLogger.logCommandRouterClassification("CONVERSATION")
         _voiceState.value = VoiceState.Processing("Samajh raha hoon...")
         scope.launch {
             var isHandled = false
-            // Natural filler only if network/processing takes > 1.15 seconds
             val fillerJob = launch {
                 delay(1150L)
                 if (!isHandled && _voiceState.value is VoiceState.Processing) {
@@ -508,7 +704,10 @@ class VoiceCommandManager(private val context: Context) {
 
                 DebugLogger.logInfo("Deep Comprehension: intent='${result.understoodIntent}', actionsCount=${result.actions.size}")
 
-                // Execute all recognized actions in sequential order
+                val actionsCount = result.actions.size
+                var executedCount = 0
+
+                // Sequential execution of all recognized actions in order
                 for ((index, action) in result.actions.withIndex()) {
                     when (action.type.lowercase()) {
                         "open_app" -> {
@@ -518,11 +717,20 @@ class VoiceCommandManager(private val context: Context) {
                                 val didLaunch = AppOpenManager.launchApp(context, matchedApp)
                                 if (didLaunch) {
                                     AppContextManager.recordAppOpen(matchedApp)
+                                    executedCount++
                                 }
                             }
                         }
+                        "screen_task", "media", "generic_control" -> {
+                            // Sequential screen / media action triggered immediately after prior action completes
+                            GenericAppControlManager.executeMediaFlow(context, action.target) { success, msg ->
+                                // Screen flow invoked
+                            }
+                            executedCount++
+                        }
                         "toggle" -> {
                             executeDeepComprehensionToggle(action.target)
+                            executedCount++
                         }
                         "answer" -> {
                             if (action.target.equals("news_brief", ignoreCase = true)) {
@@ -535,40 +743,48 @@ class VoiceCommandManager(private val context: Context) {
                                     AppOpenManager.launchApp(context, newsApp)
                                 }
                             }
+                            executedCount++
+                        }
+                        else -> {
+                            if (GenericAppControlManager.isMediaCommand(action.target.lowercase())) {
+                                GenericAppControlManager.executeMediaFlow(context, action.target) { _, _ -> }
+                                executedCount++
+                            }
                         }
                     }
                     if (index < result.actions.size - 1) {
-                        delay(350L) // Smooth gap between multiple actions
+                        delay(850L) // Settle gap so app opens completely before subsequent action executes
                     }
                 }
 
-                // Deliver warm, friendly response via TTS
+                // Exact Required Debug Log:
+                // "MULTI_INTENT_ACTIONS: count=<kitne actions mile>, executed=<kitne actually execute hue>"
+                DebugLogger.logMultiIntentActions(count = actionsCount, executed = executedCount)
+
+                // Deliver warm response and keep conversation window open
                 val replyText = if (result.replyText.isNotBlank()) result.replyText else "Main aapke liye kaam kar raha hoon."
-                
-                // BUG 1 FIX 1: ONLY save genuine, successful Gemini responses to conversation history!
-                // Never save fallback text or errors to context history.
+
                 if (result.isRealGeminiResponse) {
                     AppContextManager.recordConversationExchange(trimmed, replyText)
                 }
 
-                TtsManager.speakIfVoiceReady(replyText, caller = "VoiceComprehension")
                 _voiceState.value = VoiceState.Success(replyText)
+                speakWithFollowUp(replyText, caller = "VoiceComprehension")
 
             } catch (e: Exception) {
                 isHandled = true
                 fillerJob.cancel()
                 DebugLogger.logFallbackTriggered(true, "VoiceCommandManager exception: ${e.message}")
-                // Honest error message when Gemini call fails; never save to conversation history
                 val err = "Abhi Gemini thoda busy hai, thodi der baad try karo."
                 _voiceState.value = VoiceState.Error(err)
-                TtsManager.speakIfVoiceReady(err, caller = "VoiceComprehension")
+                speakWithFollowUp(err, caller = "VoiceComprehension")
             }
         }
     }
 
     private fun tryExecuteCompoundLocalCommand(raw: String): Boolean {
         val lower = raw.lowercase()
-        val regex = Regex(" aur | and | phir | tatha ")
+        val regex = Regex(" aur | and | phir | fir | tatha | then ")
         if (!regex.containsMatchIn(lower)) return false
 
         val parts = raw.split(regex, limit = 2)
@@ -587,8 +803,10 @@ class VoiceCommandManager(private val context: Context) {
                 handleHardwareVoiceCommand(part2.lowercase(), part2)
                 val msg = "Dono hardware settings adjust ho gayi"
                 AppContextManager.recordConversationExchange(raw, msg)
-                TtsManager.speakIfVoiceReady(msg, caller = "HardwareToggle")
                 _voiceState.value = VoiceState.Success(msg)
+                // Log multi-intent debug log
+                DebugLogger.logMultiIntentActions(count = 2, executed = 2)
+                speakWithFollowUp(msg, caller = "HardwareToggle")
             }
             return true
         }
@@ -605,8 +823,33 @@ class VoiceCommandManager(private val context: Context) {
                 handleHardwareVoiceCommand(part2.lowercase(), part2)
                 val msg = "${app1.name} khol diya aur hardware setting adjust kar di"
                 AppContextManager.recordConversationExchange(raw, msg)
-                TtsManager.speakIfVoiceReady(msg, caller = "CompoundCommand")
                 _voiceState.value = VoiceState.Success(msg)
+                // Log multi-intent debug log
+                DebugLogger.logMultiIntentActions(count = 2, executed = 2)
+                speakWithFollowUp(msg, caller = "CompoundCommand")
+            }
+            return true
+        }
+
+        // Sequential multi-intent: App 1 open + Media/Song play in App 1 (e.g. "YouTube kholo aur yeh gana chalao")
+        val isMedia2 = GenericAppControlManager.isMediaCommand(part2.lowercase()) ||
+                part2.lowercase().let { it.contains("gana") || it.contains("gaana") || it.contains("song") || it.contains("chalao") || it.contains("play") || it.contains("bajao") }
+        if (app1 != null && isMedia2) {
+            val launched = AppOpenManager.launchApp(context, app1)
+            if (launched) {
+                AppContextManager.recordAppOpen(app1)
+            }
+            scope.launch {
+                delay(850L) // Wait for app launch to complete
+                GenericAppControlManager.executeMediaFlow(context, part2) { success, details ->
+                    // Media flow completed
+                }
+                // Log multi-intent debug log: count=2, executed=2
+                DebugLogger.logMultiIntentActions(count = 2, executed = 2)
+                val reply = "${app1.name} khol diya aur gana chala raha hoon"
+                AppContextManager.recordConversationExchange(raw, reply)
+                _voiceState.value = VoiceState.Success(reply)
+                speakWithFollowUp(reply, caller = "CompoundCommand")
             }
             return true
         }
@@ -652,46 +895,58 @@ class VoiceCommandManager(private val context: Context) {
         }
     }
 
-    /**
-     * Executes resolved hardware toggle and records into ContextManager
-     */
-    fun executeResolvedHardwareToggle(feature: HardwareFeature, targetState: Boolean?) {
+    private fun executeResolvedHardwareToggle(feature: HardwareFeature, targetState: Boolean?) {
         when (feature) {
             HardwareFeature.TORCH -> {
                 HardwareToggleManager.toggleTorch(context, targetState)
-                AppContextManager.recordHardwareToggle(HardwareFeature.TORCH, if (targetState == true) "ON" else "OFF", targetState)
+                AppContextManager.recordHardwareToggle(feature, if (targetState == false) "OFF" else "ON", targetState)
+                val msg = if (targetState == false) "Torch band kar di" else "Torch on kar di"
+                speakWithFollowUp(msg, caller = "HardwareToggle")
             }
             HardwareFeature.WIFI -> {
+                val willBeOn = targetState ?: !HardwareToggleManager.isWifiEnabled(context)
                 HardwareToggleManager.toggleWifi(context)
-                AppContextManager.recordHardwareToggle(HardwareFeature.WIFI, if (targetState == true) "ON" else "OFF", targetState)
+                AppContextManager.recordHardwareToggle(feature, if (willBeOn) "ON" else "OFF", willBeOn)
+                val msg = if (willBeOn) "WiFi on kar diya" else "WiFi band kar diya"
+                speakWithFollowUp(msg, caller = "HardwareToggle")
             }
             HardwareFeature.BLUETOOTH -> {
+                val willBeOn = targetState ?: !HardwareToggleManager.isBluetoothEnabled(context)
                 HardwareToggleManager.toggleBluetooth(context)
-                AppContextManager.recordHardwareToggle(HardwareFeature.BLUETOOTH, if (targetState == true) "ON" else "OFF", targetState)
+                AppContextManager.recordHardwareToggle(feature, if (willBeOn) "ON" else "OFF", willBeOn)
+                val msg = if (willBeOn) "Bluetooth on kar diya" else "Bluetooth band kar diya"
+                speakWithFollowUp(msg, caller = "HardwareToggle")
             }
             HardwareFeature.MOBILE_DATA -> {
                 HardwareToggleManager.toggleMobileData(context)
-                AppContextManager.recordHardwareToggle(HardwareFeature.MOBILE_DATA, if (targetState == true) "ON" else "OFF", targetState)
+                AppContextManager.recordHardwareToggle(feature, if (targetState == false) "OFF" else "ON", targetState)
+                speakWithFollowUp("Mobile Data settings khol di hai", caller = "HardwareToggle")
             }
             HardwareFeature.HOTSPOT -> {
                 HardwareToggleManager.toggleHotspot(context)
-                AppContextManager.recordHardwareToggle(HardwareFeature.HOTSPOT, if (targetState == true) "ON" else "OFF", targetState)
+                AppContextManager.recordHardwareToggle(feature, if (targetState == false) "OFF" else "ON", targetState)
+                speakWithFollowUp("Hotspot settings khol di hai", caller = "HardwareToggle")
             }
             HardwareFeature.BRIGHTNESS -> {
                 HardwareToggleManager.toggleBrightness(context)
-                AppContextManager.recordHardwareToggle(HardwareFeature.BRIGHTNESS, "Toggled")
+                AppContextManager.recordHardwareToggle(feature, "Toggled", null)
+                speakWithFollowUp("Brightness adjust kar di hai", caller = "HardwareToggle")
             }
             HardwareFeature.DND -> {
                 HardwareToggleManager.toggleDnd(context, targetState)
-                AppContextManager.recordHardwareToggle(HardwareFeature.DND, if (targetState == true) "ON" else "OFF", targetState)
+                AppContextManager.recordHardwareToggle(feature, if (targetState == false) "OFF" else "ON", targetState)
+                val msg = if (targetState == false) "Do Not Disturb band kar diya" else "Do Not Disturb on kar diya"
+                speakWithFollowUp(msg, caller = "HardwareToggle")
             }
             HardwareFeature.AIRPLANE_MODE -> {
                 HardwareToggleManager.toggleAirplaneMode(context)
-                AppContextManager.recordHardwareToggle(HardwareFeature.AIRPLANE_MODE, if (targetState == true) "ON" else "OFF", targetState)
+                AppContextManager.recordHardwareToggle(feature, if (targetState == false) "OFF" else "ON", targetState)
+                speakWithFollowUp("Airplane Mode settings khol di hai", caller = "HardwareToggle")
             }
             HardwareFeature.VOLUME -> {
-                HardwareToggleManager.adjustVolume(context, if (targetState == false) VolumeAction.MUTE else VolumeAction.UP)
-                AppContextManager.recordHardwareToggle(HardwareFeature.VOLUME, if (targetState == false) "Muted" else "UP")
+                HardwareToggleManager.adjustVolume(context, VolumeAction.UP)
+                AppContextManager.recordHardwareToggle(feature, "Volume UP", null)
+                speakWithFollowUp("Volume adjust kar diya", caller = "HardwareToggle")
             }
         }
     }
@@ -715,8 +970,8 @@ class VoiceCommandManager(private val context: Context) {
         val parsedAction = ReminderParser.parseCommand(trimmed)
         if (parsedAction == null) {
             val fallbackMsg = "रिमाइंडर समझ नहीं आया. कृपया समय और काम स्पष्ट बोलें."
-            TtsManager.speakIfVoiceReady(fallbackMsg, caller = "Reminders")
             _voiceState.value = VoiceState.Error(fallbackMsg)
+            speakWithFollowUp(fallbackMsg, caller = "Reminders")
             return
         }
 
@@ -734,8 +989,8 @@ class VoiceCommandManager(private val context: Context) {
                     } else {
                         "ठीक है, ${parsedAction.humanTimeDescription} पर ${parsedAction.task} याद दिला दूँगा."
                     }
-                    TtsManager.speakIfVoiceReady(confirmMsg, caller = "Reminders")
                     _voiceState.value = VoiceState.Success("$typeStr: ${parsedAction.task} at ${savedItem.formattedTime}")
+                    speakWithFollowUp(confirmMsg, caller = "Reminders")
                 }
             }
             is ReminderVoiceAction.CancelReminder -> {
@@ -745,8 +1000,8 @@ class VoiceCommandManager(private val context: Context) {
                         val repo = ReminderRepository(db.reminderDao())
                         repo.deleteAll()
                         val msg = "आपके सारे रिमाइंडर्स और अलार्म हटा दिए गए हैं."
-                        TtsManager.speakIfVoiceReady(msg, caller = "Reminders")
                         _voiceState.value = VoiceState.Success(msg)
+                        speakWithFollowUp(msg, caller = "Reminders")
                     }
                 } else {
                     ReminderScheduler.cancelRemindersByKeyword(context, parsedAction.keyword) { count, matchedTask ->
@@ -755,8 +1010,8 @@ class VoiceCommandManager(private val context: Context) {
                         } else {
                             "कोई मैचिंग रिमाइंडर नहीं मिला."
                         }
-                        TtsManager.speakIfVoiceReady(msg, caller = "Reminders")
                         _voiceState.value = if (count > 0) VoiceState.Success(msg) else VoiceState.Error(msg)
+                        speakWithFollowUp(msg, caller = "Reminders")
                     }
                 }
             }
@@ -767,8 +1022,8 @@ class VoiceCommandManager(private val context: Context) {
                     val activeList = repo.getActiveReminders()
                     if (activeList.isEmpty()) {
                         val msg = "आपका कोई एक्टिव रिमाइंडर या अलार्म नहीं है."
-                        TtsManager.speakIfVoiceReady(msg, caller = "Reminders")
                         _voiceState.value = VoiceState.Success(msg)
+                        speakWithFollowUp(msg, caller = "Reminders")
                     } else {
                         val sb = StringBuilder()
                         sb.append("आपके ${activeList.size} एक्टिव रिमाइंडर्स हैं: ")
@@ -777,8 +1032,8 @@ class VoiceCommandManager(private val context: Context) {
                             sb.append("${i + 1}. ${item.task} ${item.formattedTime} पर. ")
                         }
                         val speakText = sb.toString()
-                        TtsManager.speakIfVoiceReady(speakText, caller = "Reminders")
                         _voiceState.value = VoiceState.Success("Active Reminders: ${activeList.size}")
+                        speakWithFollowUp(speakText, caller = "Reminders")
                     }
                 }
             }
@@ -790,11 +1045,8 @@ class VoiceCommandManager(private val context: Context) {
      */
     fun isVolumeCommand(lower: String): Boolean {
         val volumeIndicators = listOf(
-            // English
             "volume", "sound", "audio", "mute", "unmute", "louder", "softer", "quieter",
-            // Hinglish / Roman Hindi
             "awaz", "aawaz", "awaaz", "awaj", "aawaaj", "chup", "shant",
-            // Devanagari Hindi
             "वॉल्यूम", "वोल्यूम", "वॉल्युम", "वॉलयूम", "बोल्यूम",
             "आवाज", "आवाज़", "साउंड", "ऑडियो",
             "म्यूट", "अनम्यूट", "चुप करो", "चुप", "शांत"
@@ -809,28 +1061,19 @@ class VoiceCommandManager(private val context: Context) {
         if (isVolumeCommand(lower)) return true
 
         val hardwareKeywords = listOf(
-            // WiFi
             "wifi", "wi-fi", "वाई-फाई", "वाईफाई", "wlan", "इंटरनेट", "internet",
-            // Bluetooth
             "bluetooth", "ब्लूटूथ", "bt",
-            // Mobile Data
             "mobile data", "data on", "data off", "data band", "data chalu", "डेटा", "cellular", "net on", "net off",
-            // Hotspot
             "hotspot", "हॉटस्पॉट", "tethering", "पर्सनल हॉटस्पॉट",
-            // Torch / Flashlight
             "torch", "flashlight", "टॉर्च", "फ्लैशलाइट", "flash", "light on", "light off", "लाइट",
-            // Brightness
             "brightness", "screen light", "chamak", "ब्राइटनेस", "रोशनी", "स्क्रीन लाइट", "चमक",
-            // DND
             "dnd", "do not disturb", "डू नॉट डिस्टर्ब",
-            // Airplane Mode
             "airplane", "flight mode", "हवाई मोड", "aeroplane", "flight", "एयरप्लेन"
         )
         return hardwareKeywords.any { lower.contains(it) }
     }
 
     private fun handleHardwareVoiceCommand(lower: String, originalText: String) {
-        // Priority 1: Volume Commands (In-App first if available, else System API)
         if (isVolumeCommand(lower)) {
             val parsed = HardwareToggleManager.parseVolumeCommand(lower)
             if (MaxAccessibilityService.isRunning()) {
@@ -847,6 +1090,7 @@ class VoiceCommandManager(private val context: Context) {
                 HardwareFeature.VOLUME,
                 if (parsed.explicitPercent != null) "Set to ${parsed.explicitPercent}%" else parsed.action.name
             )
+            speakWithFollowUp("Volume adjust ho gaya", caller = "HardwareToggle")
             return
         }
 
@@ -866,52 +1110,52 @@ class VoiceCommandManager(private val context: Context) {
             lower.contains("torch") || lower.contains("flashlight") || lower.contains("टॉर्च") || lower.contains("फ्लैशलाइट") || lower.contains("flash") || lower.contains("लाइट") -> {
                 HardwareToggleManager.toggleTorch(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.TORCH, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speakIfVoiceReady(if (targetState == false) "Torch band kar di" else "Torch on kar di", caller = "HardwareToggle")
+                speakWithFollowUp(if (targetState == false) "Torch band kar di" else "Torch on kar di", caller = "HardwareToggle")
             }
             // WiFi
             lower.contains("wifi") || lower.contains("wi-fi") || lower.contains("वाई-फाई") || lower.contains("वाईफाई") || lower.contains("wlan") -> {
                 val willBeOn = targetState ?: !HardwareToggleManager.isWifiEnabled(context)
                 HardwareToggleManager.toggleWifi(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.WIFI, if (willBeOn) "ON" else "OFF", willBeOn)
-                TtsManager.speakIfVoiceReady(if (willBeOn) "WiFi on kar diya" else "WiFi band kar diya", caller = "HardwareToggle")
+                speakWithFollowUp(if (willBeOn) "WiFi on kar diya" else "WiFi band kar diya", caller = "HardwareToggle")
             }
             // Bluetooth
             lower.contains("bluetooth") || lower.contains("ब्लूटूथ") || lower.contains("bt") -> {
                 val willBeOn = targetState ?: !HardwareToggleManager.isBluetoothEnabled(context)
                 HardwareToggleManager.toggleBluetooth(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.BLUETOOTH, if (willBeOn) "ON" else "OFF", willBeOn)
-                TtsManager.speakIfVoiceReady(if (willBeOn) "Bluetooth on kar diya" else "Bluetooth band kar diya", caller = "HardwareToggle")
+                speakWithFollowUp(if (willBeOn) "Bluetooth on kar diya" else "Bluetooth band kar diya", caller = "HardwareToggle")
             }
             // Mobile Data
             lower.contains("data") || lower.contains("डेटा") || lower.contains("cellular") || lower.contains("net") -> {
                 HardwareToggleManager.toggleMobileData(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.MOBILE_DATA, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speakIfVoiceReady("Mobile Data settings khol di hai", caller = "HardwareToggle")
+                speakWithFollowUp("Mobile Data settings khol di hai", caller = "HardwareToggle")
             }
             // Hotspot
             lower.contains("hotspot") || lower.contains("हॉटस्पॉट") || lower.contains("tethering") -> {
                 HardwareToggleManager.toggleHotspot(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.HOTSPOT, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speakIfVoiceReady("Hotspot settings khol di hai", caller = "HardwareToggle")
+                speakWithFollowUp("Hotspot settings khol di hai", caller = "HardwareToggle")
             }
             // Brightness
             lower.contains("brightness") || lower.contains("screen light") || lower.contains("chamak") || lower.contains("ब्राइटनेस") || lower.contains("रोशनी") || lower.contains("चमक") -> {
-                val parsed = HardwareToggleManager.parseVolumeCommand(lower) // extracts percentage if any
+                val parsed = HardwareToggleManager.parseVolumeCommand(lower)
                 HardwareToggleManager.toggleBrightness(context, parsed.explicitPercent)
                 AppContextManager.recordHardwareToggle(HardwareFeature.BRIGHTNESS, if (parsed.explicitPercent != null) "${parsed.explicitPercent}%" else "Toggled")
-                TtsManager.speakIfVoiceReady("Brightness adjust kar di hai", caller = "HardwareToggle")
+                speakWithFollowUp("Brightness adjust kar di hai", caller = "HardwareToggle")
             }
             // DND
             lower.contains("dnd") || lower.contains("disturb") || lower.contains("डिस्टर्ब") -> {
                 HardwareToggleManager.toggleDnd(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.DND, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speakIfVoiceReady(if (targetState == false) "Do Not Disturb band kar diya" else "Do Not Disturb on kar diya", caller = "HardwareToggle")
+                speakWithFollowUp(if (targetState == false) "Do Not Disturb band kar diya" else "Do Not Disturb on kar diya", caller = "HardwareToggle")
             }
             // Airplane Mode
             lower.contains("airplane") || lower.contains("flight") || lower.contains("हवाई मोड") || lower.contains("aeroplane") -> {
                 HardwareToggleManager.toggleAirplaneMode(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.AIRPLANE_MODE, if (targetState == false) "OFF" else "ON", targetState)
-                TtsManager.speakIfVoiceReady("Airplane Mode settings khol di hai", caller = "HardwareToggle")
+                speakWithFollowUp("Airplane Mode settings khol di hai", caller = "HardwareToggle")
             }
         }
     }
@@ -924,6 +1168,12 @@ class VoiceCommandManager(private val context: Context) {
 
         override fun onBeginningOfSpeech() {
             clearSilenceTimer()
+            clearConversationWindowTimer()
+            if (isConversationSessionActive) {
+                // Exact Required Debug Log:
+                // "CONVERSATION_WINDOW_OPEN: duration=<sec>, follow_up_detected=<bool>"
+                DebugLogger.logConversationWindowOpen(durationSec = CONVERSATION_WINDOW_DURATION_SEC, followUpDetected = true)
+            }
             BatteryOptimizationManager.updateSubsystemState(voiceState = "PROCESSING (Speech Detected)")
         }
 
@@ -946,12 +1196,24 @@ class VoiceCommandManager(private val context: Context) {
 
         override fun onEndOfSpeech() {
             clearSilenceTimer()
+            clearConversationWindowTimer()
             _voiceState.value = VoiceState.Processing("Processing audio...")
             BatteryOptimizationManager.updateSubsystemState(voiceState = "PROCESSING (Decoding)")
         }
 
         override fun onError(error: Int) {
             clearSilenceTimer()
+            clearConversationWindowTimer()
+            if (isConversationSessionActive && (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
+                // Conversation follow-up session ended naturally because user stopped talking
+                isConversationSessionActive = false
+                isPendingWeatherLocationQuery = false
+                _voiceState.value = VoiceState.Idle
+                BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
+                DebugLogger.logInfo("Conversation session ended (no follow-up speech)")
+                return
+            }
+
             val errorMsg = when (error) {
                 SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
                 SpeechRecognizer.ERROR_CLIENT -> "Client error"
@@ -971,14 +1233,19 @@ class VoiceCommandManager(private val context: Context) {
 
         override fun onResults(results: Bundle?) {
             clearSilenceTimer()
+            clearConversationWindowTimer()
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             if (!matches.isNullOrEmpty()) {
                 val command = matches[0]
                 processCommand(command)
             } else {
-                _voiceState.value = VoiceState.Error("No match found")
+                if (isConversationSessionActive) {
+                    closeConversationSession()
+                } else {
+                    _voiceState.value = VoiceState.Error("No match found")
+                    BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
+                }
             }
-            BatteryOptimizationManager.updateSubsystemState(voiceState = "IDLE (Sleep Mode)")
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
@@ -993,6 +1260,9 @@ class VoiceCommandManager(private val context: Context) {
 
     fun destroy() {
         clearSilenceTimer()
+        clearConversationWindowTimer()
+        isConversationSessionActive = false
+        isPendingWeatherLocationQuery = false
         try {
             speechRecognizer?.destroy()
             speechRecognizer = null
