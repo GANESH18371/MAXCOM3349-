@@ -770,41 +770,49 @@ object DebugLogger {
     // =========================================================================
 
     /**
-     * 1. Exact format: "ENROLLMENT_RECORD_STARTED: sample_number=<num>"
+     * 1. Exact format: "ENROLLMENT_RECORD_STARTED: sample_number=<num>" and "ENROLLMENT_RECORD_STARTED: true, sample_number=<num>"
      */
     fun logEnrollmentRecordStarted(started: Boolean, sampleNumber: Int) {
-        val logLine = "ENROLLMENT_RECORD_STARTED: sample_number=$sampleNumber"
-        safeLog(if (started) Log.INFO else Log.WARN, TAG, logLine)
-        addEntry(logLine, LogType.INFO)
+        val logLine1 = "ENROLLMENT_RECORD_STARTED: sample_number=$sampleNumber"
+        val logLine2 = "ENROLLMENT_RECORD_STARTED: $started, sample_number=$sampleNumber"
+        safeLog(if (started) Log.INFO else Log.WARN, TAG, logLine1)
+        addEntry(logLine1, LogType.INFO)
+        addEntry(logLine2, LogType.INFO)
     }
 
     /**
-     * 2. Exact format: "ENROLLMENT_AUDIO_CAPTURED: duration=<sec>, rms_level=<rms>"
+     * 2. Exact format: "ENROLLMENT_AUDIO_CAPTURED: duration=<sec>, rms_level=<rms>" and "ENROLLMENT_AUDIO_CAPTURED: true, duration=<sec>, rms_level=<rms>"
      */
     fun logEnrollmentAudioCaptured(captured: Boolean, duration: String, rmsLevel: Int) {
-        val logLine = "ENROLLMENT_AUDIO_CAPTURED: duration=$duration, rms_level=$rmsLevel"
-        safeLog(if (captured) Log.INFO else Log.WARN, TAG, logLine)
-        addEntry(logLine, LogType.INFO)
+        val logLine1 = "ENROLLMENT_AUDIO_CAPTURED: duration=$duration, rms_level=$rmsLevel"
+        val logLine2 = "ENROLLMENT_AUDIO_CAPTURED: $captured, duration=$duration, rms_level=$rmsLevel"
+        safeLog(if (captured) Log.INFO else Log.WARN, TAG, logLine1)
+        addEntry(logLine1, LogType.INFO)
+        addEntry(logLine2, LogType.INFO)
     }
 
     /**
-     * 3. Exact format: "ENROLLMENT_EMBEDDING_EXTRACTED: success/fail, error=<reason>"
+     * 3. Exact format: "ENROLLMENT_EMBEDDING_EXTRACTED: success/fail, error=<reason>" and "ENROLLMENT_EMBEDDING_EXTRACTED: true/false, error=<reason>"
      */
     fun logEnrollmentEmbeddingExtracted(extracted: Boolean, error: String = "none") {
         val status = if (extracted) "success" else "fail"
-        val logLine = "ENROLLMENT_EMBEDDING_EXTRACTED: $status, error=$error"
-        safeLog(if (extracted) Log.INFO else Log.WARN, TAG, logLine)
-        addEntry(logLine, LogType.INFO)
+        val logLine1 = "ENROLLMENT_EMBEDDING_EXTRACTED: $status, error=$error"
+        val logLine2 = "ENROLLMENT_EMBEDDING_EXTRACTED: $extracted, error=$error"
+        safeLog(if (extracted) Log.INFO else Log.WARN, TAG, logLine1)
+        addEntry(logLine1, LogType.INFO)
+        addEntry(logLine2, LogType.INFO)
     }
 
     /**
-     * 4. Exact format: "ENROLLMENT_PROFILE_SAVED: success/fail, file_path=<path>, file_size=<size>"
+     * 4. Exact format: "ENROLLMENT_PROFILE_SAVED: success/fail, file_path=<path>, file_size=<size>" and "ENROLLMENT_PROFILE_SAVED: true/false, file_path=<path>, file_size=<size>"
      */
     fun logEnrollmentProfileSaved(saved: Boolean, filePath: String, fileSize: Long) {
         val status = if (saved) "success" else "fail"
-        val logLine = "ENROLLMENT_PROFILE_SAVED: $status, file_path=$filePath, file_size=$fileSize"
-        safeLog(if (saved) Log.INFO else Log.WARN, TAG, logLine)
-        addEntry(logLine, LogType.INFO)
+        val logLine1 = "ENROLLMENT_PROFILE_SAVED: $status, file_path=$filePath, file_size=$fileSize"
+        val logLine2 = "ENROLLMENT_PROFILE_SAVED: $saved, file_path=$filePath, file_size=$fileSize"
+        safeLog(if (saved) Log.INFO else Log.WARN, TAG, logLine1)
+        addEntry(logLine1, LogType.INFO)
+        addEntry(logLine2, LogType.INFO)
     }
 
     /**

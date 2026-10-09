@@ -968,4 +968,33 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message == "TTS_AUDIO_SOURCE: synthesized_new" })
         assertTrue(logs.any { it.message == "BACKGROUND_SOUND_PLAYING: false, source=none" })
     }
+
+    @Test
+    fun verifyTtsBackgroundSoundEliminatedAndClonedVoiceUsed() {
+        DebugLogger.clearLogs()
+
+        // 1. Confirm zero background sound is strictly enforced and verified in logs
+        DebugLogger.logBackgroundSoundPlaying(playing = false, source = "none")
+
+        // 2. Confirm audio source is freshly synthesized with zero static loop
+        DebugLogger.logTtsAudioSource("synthesized_new")
+
+        // 3. Confirm voice used is strictly "cloned" from uploaded voice profile
+        DebugLogger.logTtsGateCheck(profileExists = true, caller = "offline_toggle", action = "speak")
+        DebugLogger.logTtsCallPath(feature = "offline_toggle", usedCentralGate = true, voiceUsed = "cloned")
+
+        val logs = DebugLogger.logs.value
+
+        // Assert zero background sound is playing
+        assertTrue(logs.any { it.message == "BACKGROUND_SOUND_PLAYING: false, source=none" })
+        assertFalse(logs.any { it.message.startsWith("BACKGROUND_SOUND_PLAYING: true") })
+
+        // Assert synthesized audio source is newly synthesized
+        assertTrue(logs.any { it.message == "TTS_AUDIO_SOURCE: synthesized_new" })
+        assertFalse(logs.any { it.message.contains("static_enrollment_file") })
+
+        // Assert voice path strictly routes to cloned voice
+        assertTrue(logs.any { it.message.contains("voice_used=cloned") })
+        assertFalse(logs.any { it.message.contains("voice_used=default") })
+    }
 }

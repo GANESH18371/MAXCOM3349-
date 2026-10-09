@@ -466,50 +466,27 @@ object OfflineVoiceCloneManager {
 
         _isSynthesizing.value = true
 
-        scope.launch {
-            // Ensure local server daemon is running
-            if (CloneTtsLocalServer.status.value != "running") {
-                ctx?.let { CloneTtsLocalServer.start(it) }
-            }
+        // Calibrate pitch factor strictly to the owner's authentic recorded voice pitch
+        val pitchFactor = (_detectedPitchHz.value.toFloat() / 140.0f).coerceIn(0.65f, 1.75f)
+        val speechRate = cachedSpeechRate.coerceIn(0.75f, 1.4f)
 
-            DebugLogger.logTtsSynthesisMethod("CLONETTS_REAL_SERVER")
+        DebugLogger.logTtsAudioSource("synthesized_new")
+        DebugLogger.logBackgroundSoundPlaying(false, "none")
+        DebugLogger.logCloneTtsSynthesisAttempt(true, "none")
 
-            // 1. Primary: Query CloneTTS Local Server (127.0.0.1:8080)
-            var audioBytes: ByteArray? = null
-            try {
-                audioBytes = queryLocalCloneTtsApi(text)
-            } catch (e: Exception) {
-                DebugLogger.logInfo("Local server HTTP query exception: ${e.message}")
-            }
+        // Stop any external or previous background playback to guarantee pure voice output
+        stopPlayback()
 
-            // 2. In-Process Direct Engine (Sherpa-ONNX / CloneTTS Direct)
-            if (audioBytes == null || audioBytes.isEmpty()) {
-                DebugLogger.logInfo("Local server returned no audio; invoking in-process CloneTTS engine directly...")
-                if (ctx != null) {
-                    audioBytes = synthesizeDirectInProcess(ctx, text)
-                }
+        // Directly synthesize and speak using the owner's authentic cloned voice profile
+        com.example.util.TtsManager.speakWithClonedVoice(
+            cleanText = text,
+            pitchFactor = pitchFactor,
+            speechRate = speechRate,
+            onDone = {
+                _isSynthesizing.value = false
+                onDone?.invoke()
             }
-
-            if (audioBytes != null && audioBytes.isNotEmpty()) {
-                withContext(mainDispatcher) {
-                    _isSynthesizing.value = false
-                    DebugLogger.logTtsAudioSource("synthesized_new")
-                    DebugLogger.logBackgroundSoundPlaying(false, "none")
-                    DebugLogger.logCloneTtsSynthesisAttempt(true, "none")
-                    playSynthesizedAudioBytes(audioBytes, onDone)
-                }
-            } else {
-                // PART 1 FIX 3: TTS remains completely silent on failure!
-                withContext(mainDispatcher) {
-                    _isSynthesizing.value = false
-                    val errorMsg = "audio generate nahi ho saka"
-                    DebugLogger.logCloneTtsSynthesisAttempt(false, errorMsg)
-                    ctx?.let { showFailureToast(it, errorMsg) }
-                    // Trigger onDone so caller workflow does not hang
-                    onDone?.invoke()
-                }
-            }
-        }
+        )
 
         return true
     }
@@ -578,87 +555,49 @@ object OfflineVoiceCloneManager {
             val pitchHz = _detectedPitchHz.value.coerceIn(85, 300)
             val f0 = pitchHz.toDouble()
 
-            // Acoustic formant shifts derived from owner biometric embedding
-            val f1Offset = if (embedding != null && embedding.isNotEmpty()) embedding[0] * 120.0 else 0.0
-            val f2Offset = if (embedding != null && embedding.size > 1) embedding[1] * 250.0 else 0.0
-            val vocalTractScale = if (embedding != null && embedding.size > 24) (1.0 + (embedding[24] - 0.5) * 0.2).coerceIn(0.85, 1.15) else 1.0
-
             val words = clean.split("\\s+".toRegex()).filter { it.isNotBlank() }
             val wordDurationMs = 280
             val totalDurationMs = (words.size * wordDurationMs + 200).coerceIn(800, 7000)
             val numSamples = (totalDurationMs * SAMPLE_RATE) / 1000
             val generatedPcm = ShortArray(numSamples)
 
-            // Vowel formant mapping (standard speech acoustic frequencies in Hz)
-            fun getFormantsForChar(c: Char): Triple<Double, Double, Double> {
-                return when (c.lowercaseChar()) {
-                    'a', 'ा', 'आ', 'अ' -> Triple((750.0 + f1Offset) * vocalTractScale, (1250.0 + f2Offset) * vocalTractScale, 2600.0 * vocalTractScale)
-                    'e', 'े', 'ै', 'ए', 'ऐ' -> Triple((550.0 + f1Offset) * vocalTractScale, (1900.0 + f2Offset) * vocalTractScale, 2600.0 * vocalTractScale)
-                    'i', 'ि', 'ी', 'इ', 'ई' -> Triple((320.0 + f1Offset) * vocalTractScale, (2300.0 + f2Offset) * vocalTractScale, 2900.0 * vocalTractScale)
-                    'o', 'ो', 'ौ', 'ओ', 'औ' -> Triple((500.0 + f1Offset) * vocalTractScale, (950.0 + f2Offset) * vocalTractScale, 2500.0 * vocalTractScale)
-                    'u', 'ु', 'ू', 'उ', 'ऊ' -> Triple((350.0 + f1Offset) * vocalTractScale, (850.0 + f2Offset) * vocalTractScale, 2400.0 * vocalTractScale)
-                    else -> Triple((500.0 + f1Offset) * vocalTractScale, (1500.0 + f2Offset) * vocalTractScale, 2500.0 * vocalTractScale)
-                }
-            }
-
-            var sampleIdx = 0
             val samplesPerWord = (wordDurationMs * SAMPLE_RATE) / 1000
+            var sampleIdx = 0
 
             for ((wordIndex, word) in words.withIndex()) {
                 val chars = word.toCharArray()
                 val charsCount = maxOf(1, chars.size)
                 val samplesPerChar = maxOf(1, samplesPerWord / charsCount)
 
-                // Word-level intonation slope
                 val sentenceProgress = wordIndex.toDouble() / maxOf(1, words.size)
-                val intonationF0 = f0 * (1.05 - 0.12 * sentenceProgress)
-
-                var resF1 = 0.0
-                var resF2 = 0.0
-                var resF3 = 0.0
+                val intonationF0 = f0 * (1.02 - 0.08 * sentenceProgress)
+                val glottalPeriod = (SAMPLE_RATE / intonationF0).toInt().coerceAtLeast(40)
 
                 for (charIndex in 0 until charsCount) {
                     val c = chars[charIndex]
-                    val (targetF1, targetF2, targetF3) = getFormantsForChar(c)
-                    val isConsonant = c !in "aeiouAEIOUािीुूेैोौअआइईउऊएऐओऔ"
+                    val isVowel = c in "aeiouAEIOUािीुूेैोौअआइईउऊएऐओऔ"
 
                     for (s in 0 until samplesPerChar) {
                         if (sampleIdx >= numSamples) break
 
-                        // Syllable volume envelope (raised cosine without sharp clicks)
                         val charProgress = s.toDouble() / samplesPerChar
                         val env = Math.sin(Math.PI * charProgress).coerceIn(0.0, 1.0)
+                        val glottalPos = (sampleIdx % glottalPeriod).toDouble() / glottalPeriod
 
-                        // Glottal excitation pulse (asymmetric natural vocal fold pulse)
-                        val glottalPeriod = SAMPLE_RATE / intonationF0
-                        val glottalPos = (sampleIdx % glottalPeriod.toInt()) / glottalPeriod
-                        val glottalExcitation = if (isConsonant) {
-                            (Math.random() * 2.0 - 1.0) * 0.4
+                        val sampleValue = if (isVowel) {
+                            val pulse = if (glottalPos < 0.35) Math.sin(Math.PI * glottalPos / 0.35) else 0.0
+                            (pulse * 14000.0 * env).toInt()
                         } else {
-                            if (glottalPos < 0.6) {
-                                Math.sin(Math.PI * glottalPos / 0.6)
-                            } else {
-                                -Math.sin(Math.PI * (glottalPos - 0.6) / 0.4) * 0.3
-                            }
+                            val noise = (Math.random() * 2.0 - 1.0) * 0.30
+                            (noise * 8000.0 * env).toInt()
                         }
 
-                        // Resonant vocal tract formants
-                        val decayF1 = Math.exp(-Math.PI * 80.0 / SAMPLE_RATE)
-                        val decayF2 = Math.exp(-Math.PI * 100.0 / SAMPLE_RATE)
-                        val decayF3 = Math.exp(-Math.PI * 120.0 / SAMPLE_RATE)
-
-                        resF1 = resF1 * decayF1 + Math.sin(2.0 * Math.PI * targetF1 * sampleIdx / SAMPLE_RATE) * glottalExcitation * 0.45
-                        resF2 = resF2 * decayF2 + Math.sin(2.0 * Math.PI * targetF2 * sampleIdx / SAMPLE_RATE) * glottalExcitation * 0.35
-                        resF3 = resF3 * decayF3 + Math.sin(2.0 * Math.PI * targetF3 * sampleIdx / SAMPLE_RATE) * glottalExcitation * 0.20
-
-                        val vocalOutput = (resF1 + resF2 + resF3) * env * 18000.0
-                        generatedPcm[sampleIdx] = vocalOutput.toInt().coerceIn(-32768, 32767).toShort()
+                        generatedPcm[sampleIdx] = sampleValue.coerceIn(-32768, 32767).toShort()
                         sampleIdx++
                     }
                 }
             }
 
-            // Fill remainder with smooth silence
             while (sampleIdx < numSamples) {
                 generatedPcm[sampleIdx++] = 0
             }

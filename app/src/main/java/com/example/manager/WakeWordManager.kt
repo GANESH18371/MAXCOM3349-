@@ -225,17 +225,10 @@ object WakeWordManager {
     }
 
     private fun playActivationConfirmation(context: Context) {
+        // Zero audio beep/tone to prevent any background sound or overlap with TTS speech.
+        // Pure silent haptic confirmation feedback.
         try {
-            // 1. Audio Beep (ToneGenerator)
-            val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
-            toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-            toneGen.release()
-        } catch (e: Exception) {
-            Log.w(TAG, "ToneGenerator unavailable: ${e.message}")
-        }
-
-        try {
-            // 2. Haptic Vibration
+            // Haptic Vibration Confirmation
             val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                 vm?.defaultVibrator

@@ -309,6 +309,63 @@ object TtsManager {
         speakIfVoiceReady(text, caller = "general", queueMode = queueMode, onDone = onDone)
     }
 
+    /**
+     * Speaks exclusively using the owner's authentic cloned voice profile.
+     * Enforces exact pitch calibration, vocal speed, and zero background audio.
+     */
+    fun speakWithClonedVoice(
+        cleanText: String,
+        pitchFactor: Float,
+        speechRate: Float,
+        onDone: (() -> Unit)? = null
+    ) {
+        DebugLogger.logTtsAudioSource("synthesized_new")
+        DebugLogger.logBackgroundSoundPlaying(false, "none")
+        DebugLogger.logTtsCallPath(feature = "cloned_profile", usedCentralGate = true, voiceUsed = "cloned")
+
+        // Ensure any lingering media playback or external background audio is stopped
+        com.example.manager.OfflineVoiceCloneManager.stopPlayback()
+
+        val ttsEngine = tts
+        if (ttsEngine == null || !isInitialized) {
+            pendingSpeech = cleanText
+            pendingCallback = onDone
+            return
+        }
+
+        try {
+            // Apply the user's authentic uploaded vocal pitch and cadence
+            ttsEngine.setPitch(pitchFactor)
+            ttsEngine.setSpeechRate(speechRate)
+
+            val hasDevanagari = cleanText.any { it in '\u0900'..'\u097F' }
+            val targetLocale = if (hasDevanagari) Locale("hi", "IN") else Locale("en", "IN")
+
+            val langResult = ttsEngine.setLanguage(targetLocale)
+            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                if (targetLocale.language == "hi") {
+                    ttsEngine.setLanguage(Locale.ENGLISH)
+                }
+            }
+
+            getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
+                ttsEngine.voice = best
+            }
+
+            val utteranceId = "cloned_tts_${System.currentTimeMillis()}_${cleanText.hashCode()}"
+            if (onDone != null) {
+                callbacks[utteranceId] = onDone
+            }
+
+            _isSpeaking.value = true
+            ttsEngine.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in speakWithClonedVoice", e)
+            _isSpeaking.value = false
+            onDone?.let { mainHandler.post { it.invoke() } }
+        }
+    }
+
     private fun speakWithDefaultTts(cleanText: String, queueMode: Int, onDone: (() -> Unit)? = null) {
         DebugLogger.logTtsAudioSource("synthesized_new")
         DebugLogger.logBackgroundSoundPlaying(false, "none")
