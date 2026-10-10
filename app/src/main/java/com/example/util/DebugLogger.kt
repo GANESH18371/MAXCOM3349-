@@ -878,6 +878,15 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "CLASSIFICATION_DECISION: input=<text>, classified_as=<TASK/CONVERSATION>, confidence=<kyun>, false_positive_risk=<agar koi app/toggle-keyword mention hua tha context me>"
+     */
+    fun logClassificationDecision(input: String, classifiedAs: String, confidence: String, falsePositiveRisk: String) {
+        val logLine = "CLASSIFICATION_DECISION: input=$input, classified_as=$classifiedAs, confidence=$confidence, false_positive_risk=$falsePositiveRisk"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

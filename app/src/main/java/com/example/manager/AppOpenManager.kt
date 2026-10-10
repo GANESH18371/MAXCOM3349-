@@ -548,6 +548,41 @@ object AppOpenManager {
         }
     }
 
+    /**
+     * Checks if the user's query represents a genuine app launch command (explicit launch verb or direct app name)
+     * as opposed to a casual narrative/conversational mention.
+     */
+    fun isExplicitAppLaunchIntent(rawQuery: String, apps: List<InstalledApp>): Boolean {
+        val trimmed = rawQuery.trim()
+        val lower = trimmed.lowercase(Locale.getDefault())
+        val matchedApp = fuzzyMatchApp(trimmed, apps) ?: return false
+
+        val launchVerbs = listOf(
+            "kholo", "khol", "kholiye", "khol do", "khol de", "khol dena", "khol dijiye",
+            "खोलो", "खोल", "खोलिए", "खोल दो", "खोल दे", "खोल देना", "खोल दीजिए",
+            "open", "launch", "start", "run", "ओपन", "स्टार्ट", "लॉन्च", "रन",
+            "chalao", "chala", "chala do", "chala de", "chala dena", "chala dijiye", "चलाओ", "चला", "चलाइए",
+            "chalu karo", "chalu kar", "chalu kar do", "चालू करो", "चालू कर"
+        )
+        val hasLaunchVerb = launchVerbs.any { lower.contains(it) }
+
+        val narrativeMarkers = listOf(
+            "dekha tha", "dekhi thi", "suna tha", "suni thi", "hua tha", "gaya tha", "gayi thi",
+            "aaya tha", "use kiya tha", "use kiya", "use kar raha tha", "kharida tha", "khareeda tha",
+            "liya tha", "chal raha tha", "baat kar raha tha", "bol raha tha", "ho gaya tha", "padha tha",
+            "dekh raha tha", "sun raha tha", "soch raha tha", "kaisa laga", "achha hai", "pasand hai",
+            "kya haal", "kaise ho", "kya chal raha hai", "kya hota hai", "kaise karte hain", "kaise bhejte hain",
+            "password kya hai"
+        )
+        val hasNarrative = narrativeMarkers.any { lower.contains(it) }
+        if (hasNarrative) return false
+
+        val words = trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }
+        val isDirectAppNameAlone = words.size <= 2
+
+        return hasLaunchVerb || isDirectAppNameAlone
+    }
+
     fun launchApp(context: Context, app: InstalledApp): Boolean {
         return try {
             val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)

@@ -997,4 +997,95 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message.contains("voice_used=cloned") })
         assertFalse(logs.any { it.message.contains("voice_used=default") })
     }
+
+    @Test
+    fun classification_strictlyDistinguishesTasksFromCasualConversation() {
+        // 1. CLEAR TASKS: Explicit action verbs + targets
+        val taskWifi = com.example.manager.CommandClassifier.classify("WiFi on karo", sampleApps)
+        assertTrue("WiFi on karo should be TASK", taskWifi.isTask)
+        assertEquals("TASK", taskWifi.classifiedAs)
+        assertEquals("HARDWARE_TOGGLE", taskWifi.taskType)
+        assertEquals("none", taskWifi.falsePositiveRisk)
+
+        val taskTorch = com.example.manager.CommandClassifier.classify("Torch band kar do", sampleApps)
+        assertTrue("Torch band kar do should be TASK", taskTorch.isTask)
+        assertEquals("TASK", taskTorch.classifiedAs)
+        assertEquals("HARDWARE_TOGGLE", taskTorch.taskType)
+
+        val taskVolume = com.example.manager.CommandClassifier.classify("Volume badhao", sampleApps)
+        assertTrue("Volume badhao should be TASK", taskVolume.isTask)
+        assertEquals("TASK", taskVolume.classifiedAs)
+        assertEquals("HARDWARE_TOGGLE", taskVolume.taskType)
+
+        val taskYouTube = com.example.manager.CommandClassifier.classify("YouTube kholo", sampleApps)
+        assertTrue("YouTube kholo should be TASK", taskYouTube.isTask)
+        assertEquals("TASK", taskYouTube.classifiedAs)
+        assertEquals("APP_OPEN", taskYouTube.taskType)
+
+        val taskYouTubeHindi = com.example.manager.CommandClassifier.classify("यूट्यूब खोलो", sampleApps)
+        assertTrue("यूट्यूब खोलो should be TASK", taskYouTubeHindi.isTask)
+        assertEquals("TASK", taskYouTubeHindi.classifiedAs)
+        assertEquals("APP_OPEN", taskYouTubeHindi.taskType)
+
+        val taskChromeAlone = com.example.manager.CommandClassifier.classify("Chrome", sampleApps)
+        assertTrue("Chrome spoken alone should be TASK", taskChromeAlone.isTask)
+        assertEquals("TASK", taskChromeAlone.classifiedAs)
+        assertEquals("APP_OPEN", taskChromeAlone.taskType)
+
+        // 2. CASUAL CONVERSATIONS: Keyword mentions without action verbs / in narrative context
+        val convBluetooth = com.example.manager.CommandClassifier.classify("Kal maine bluetooth speaker khareeda tha", sampleApps)
+        assertFalse("Kal bluetooth khareeda tha should NOT be task", convBluetooth.isTask)
+        assertEquals("CONVERSATION", convBluetooth.classifiedAs)
+        assertTrue("False positive risk should mention bluetooth", convBluetooth.falsePositiveRisk.contains("bluetooth"))
+
+        val convYouTubeStory = com.example.manager.CommandClassifier.classify("Kal maine YouTube par ek movie dekhi thi", sampleApps)
+        assertFalse("YouTube story should NOT be task", convYouTubeStory.isTask)
+        assertEquals("CONVERSATION", convYouTubeStory.classifiedAs)
+        assertTrue("False positive risk should mention YouTube", convYouTubeStory.falsePositiveRisk.contains("YouTube"))
+
+        val convAwazCompliment = com.example.manager.CommandClassifier.classify("Aapki aawaz bohot pyaari hai", sampleApps)
+        assertFalse("Aawaz compliment should NOT be task", convAwazCompliment.isTask)
+        assertEquals("CONVERSATION", convAwazCompliment.classifiedAs)
+        assertTrue("False positive risk should mention aawaz", convAwazCompliment.falsePositiveRisk.contains("aawaz"))
+
+        val convWifiQuestion = com.example.manager.CommandClassifier.classify("WiFi ka password kya hai bhai", sampleApps)
+        assertFalse("WiFi question should NOT be task", convWifiQuestion.isTask)
+        assertEquals("CONVERSATION", convWifiQuestion.classifiedAs)
+        assertTrue("False positive risk should mention wifi", convWifiQuestion.falsePositiveRisk.contains("wifi"))
+
+        val convWhatsAppQuestion = com.example.manager.CommandClassifier.classify("WhatsApp par message kaise bhejte hain", sampleApps)
+        assertFalse("WhatsApp question should NOT be task", convWhatsAppQuestion.isTask)
+        assertEquals("CONVERSATION", convWhatsAppQuestion.classifiedAs)
+        assertTrue("False positive risk should mention WhatsApp", convWhatsAppQuestion.falsePositiveRisk.contains("WhatsApp"))
+
+        val convChitchat = com.example.manager.CommandClassifier.classify("Bhai aaj din kaisa raha", sampleApps)
+        assertFalse("General chitchat should NOT be task", convChitchat.isTask)
+        assertEquals("CONVERSATION", convChitchat.classifiedAs)
+        assertEquals("none", convChitchat.falsePositiveRisk)
+    }
+
+    @Test
+    fun debugLogger_recordsClassificationDecisionLogs() {
+        DebugLogger.clearLogs()
+
+        // 1. Task decision log
+        DebugLogger.logClassificationDecision(
+            input = "WiFi on karo",
+            classifiedAs = "TASK",
+            confidence = "Explicit action-verb 'on karo' targeting 'wifi'",
+            falsePositiveRisk = "none"
+        )
+
+        // 2. Conversation decision log with false positive risk avoided
+        DebugLogger.logClassificationDecision(
+            input = "Kal maine YouTube par ek video dekhi thi",
+            classifiedAs = "CONVERSATION",
+            confidence = "Past-tense / narrative storytelling detected",
+            falsePositiveRisk = "keyword 'YouTube' mentioned in conversational context"
+        )
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message.startsWith("CLASSIFICATION_DECISION: input=WiFi on karo, classified_as=TASK") })
+        assertTrue(logs.any { it.message.contains("classified_as=CONVERSATION") && it.message.contains("false_positive_risk=keyword 'YouTube'") })
+    }
 }

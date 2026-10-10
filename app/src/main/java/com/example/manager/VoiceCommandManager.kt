@@ -307,6 +307,17 @@ class VoiceCommandManager(private val context: Context) {
             return
         }
 
+        val installedApps = AppOpenManager.getFreshInstalledApps(context)
+        val classification = CommandClassifier.classify(effectiveCommand, installedApps)
+        // Exact Required Debug Log:
+        // "CLASSIFICATION_DECISION: input=<text>, classified_as=<TASK/CONVERSATION>, confidence=<kyun>, false_positive_risk=<agar koi app/toggle-keyword mention hua tha context me>"
+        DebugLogger.logClassificationDecision(
+            input = effectiveCommand,
+            classifiedAs = classification.classifiedAs,
+            confidence = classification.confidence,
+            falsePositiveRisk = classification.falsePositiveRisk
+        )
+
         // =========================================================================
         // BUG 2 FIX: PENDING WEATHER LOCATION QUERY (User answering "Kis jagah ka mausam bataun?")
         // =========================================================================
@@ -371,7 +382,11 @@ class VoiceCommandManager(private val context: Context) {
         val isVol = isVolumeCommand(lower)
         val isHw = isHardwareCommand(lower) && !isVol
 
-        val contextResult = AppContextManager.resolveContext(lower, isVolume = isVol, hasHardwareName = isHw)
+        val contextResult = if (classification.isTask) {
+            AppContextManager.resolveContext(lower, isVolume = isVol, hasHardwareName = isHw)
+        } else {
+            ContextResolutionResult.NoReference
+        }
 
         when (contextResult) {
             is ContextResolutionResult.ResolvedVolume -> {
@@ -629,15 +644,16 @@ class VoiceCommandManager(private val context: Context) {
         // BUG 3 FIX: STEP 0.98 COMPOUND MULTI-INTENT EXECUTION
         // "YouTube kholo aur yeh gana chalao", "torch on karo aur wifi band karo"
         // =========================================================================
-        if (tryExecuteCompoundLocalCommand(trimmed)) {
+        if (classification.isTask && tryExecuteCompoundLocalCommand(trimmed)) {
             DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             return
         }
 
         // =========================================================================
         // STEP 1: HARDWARE TOGGLE COMMAND (Single command)
+        // Guarded: Must be strictly classified as TASK of type HARDWARE_TOGGLE!
         // =========================================================================
-        if (!isMultiIntentCommand(trimmed) && isHardwareCommand(lower)) {
+        if (classification.isTask && classification.taskType == "HARDWARE_TOGGLE" && !isMultiIntentCommand(trimmed) && isHardwareCommand(lower)) {
             DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             handleHardwareVoiceCommand(lower, trimmed)
             _voiceState.value = VoiceState.Success("Hardware action triggered for \"$trimmed\"")
@@ -646,9 +662,11 @@ class VoiceCommandManager(private val context: Context) {
 
         // =========================================================================
         // STEP 2: APP OPEN COMMAND (Devanagari / Phonetic / Fuzzy Match)
+        // Guarded: Must be strictly classified as TASK of type APP_OPEN!
         // Guarded: Do NOT swallow multi-intent commands like "YouTube kholo aur gana chalao"
+        // Guarded: Do NOT trigger on casual conversation mentioning an app!
         // =========================================================================
-        if (!isMultiIntentCommand(trimmed)) {
+        if (classification.isTask && classification.taskType == "APP_OPEN" && !isMultiIntentCommand(trimmed)) {
             val launched = AppOpenManager.processAndLaunch(context, trimmed)
             if (launched) {
                 DebugLogger.logCommandRouterClassification("SCREEN_TASK")
@@ -1041,7 +1059,7 @@ class VoiceCommandManager(private val context: Context) {
     }
 
     /**
-     * Checks if the voice command is related to Volume / Audio
+     * Checks if the voice command is related to Volume / Audio and contains genuine volume adjustment intent
      */
     fun isVolumeCommand(lower: String): Boolean {
         val volumeIndicators = listOf(
@@ -1051,26 +1069,24 @@ class VoiceCommandManager(private val context: Context) {
             "आवाज", "आवाज़", "साउंड", "ऑडियो",
             "म्यूट", "अनम्यूट", "चुप करो", "चुप", "शांत"
         )
-        return volumeIndicators.any { lower.contains(it) }
+        val hasIndicator = volumeIndicators.any { lower.contains(it) }
+        val volumeActions = listOf(
+            "badhao", "badha", "badha do", "kam", "kam karo", "kam kar do", "dheere", "dheeme", "tez", "up", "down",
+            "mute", "unmute", "chup", "shant", "शांत", "म्यूट", "अनम्यूट", "बढ़ाओ", "धीमे", "तेज़",
+            "percent", "%", "प्रतिशत", "louder", "quieter", "softer"
+        )
+        val hasAction = volumeActions.any { lower.contains(it) }
+        val isConversational = listOf("dekha tha", "suna tha", "pyaari hai", "achhi hai", "acchi hai", "accha hai", "mast hai").any { lower.contains(it) }
+
+        return hasIndicator && (hasAction || lower.contains("mute") || lower.contains("unmute") || lower.contains("chup") || lower.contains("शांत")) && !isConversational
     }
 
     /**
-     * Checks if the command matches any hardware toggle keyword
+     * Checks if the command matches any hardware toggle keyword and contains genuine toggle action intent
      */
     fun isHardwareCommand(lower: String): Boolean {
         if (isVolumeCommand(lower)) return true
-
-        val hardwareKeywords = listOf(
-            "wifi", "wi-fi", "वाई-फाई", "वाईफाई", "wlan", "इंटरनेट", "internet",
-            "bluetooth", "ब्लूटूथ", "bt",
-            "mobile data", "data on", "data off", "data band", "data chalu", "डेटा", "cellular", "net on", "net off",
-            "hotspot", "हॉटस्पॉट", "tethering", "पर्सनल हॉटस्पॉट",
-            "torch", "flashlight", "टॉर्च", "फ्लैशलाइट", "flash", "light on", "light off", "लाइट",
-            "brightness", "screen light", "chamak", "ब्राइटनेस", "रोशनी", "स्क्रीन लाइट", "चमक",
-            "dnd", "do not disturb", "डू नॉट डिस्टर्ब",
-            "airplane", "flight mode", "हवाई मोड", "aeroplane", "flight", "एयरप्लेन"
-        )
-        return hardwareKeywords.any { lower.contains(it) }
+        return CommandClassifier.isExplicitHardwareToggleIntent(lower)
     }
 
     private fun handleHardwareVoiceCommand(lower: String, originalText: String) {

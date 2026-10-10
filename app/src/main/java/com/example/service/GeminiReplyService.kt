@@ -230,24 +230,28 @@ object GeminiReplyService {
 
                 User Hindi, Hinglish ya casual English mein bolta hai. Wake word "मैक्स" ya "Max" ignore karo. Poori baat ek saath samjho; ek se zyada kaam ho to sab actions order mein do.
 
+                ZAROORI STRICT RULE (BAAT-CHEET VS ACTION):
+                - Sirf TABHI action lo jab user CLEARLY kuch KARNE ko keh raha ho (jaise 'kholo', 'on karo', 'band karo', 'chalao' jaise explicit action-verbs ke saath). Agar user sirf BAAT kar raha hai, feeling share kar raha hai, ya kisi cheez ka zikr kar raha hai BINA action maange, to action MAT lo — sirf CONVERSATIONALLY jawab do, jaisa ek dost karta hai.
+                - False positive action se bacho: Agar user ne bola "aaj maine bluetooth speaker dekha", "wifi ki speed theek aa rahi hai", "youtube par kal ek movie dekhi thi", "aawaz bohot achhi hai", to yeh CONVERSATION hai, koi toggle ya app-open task NAHI. Action list empty rakho: "actions": [{"type":"answer","target":""}].
+
                 Action types:
-                - open_app: target = app ka naam
+                - open_app: target = app ka naam (sirf jab kholne/chalane ka explicit command ho)
                 - screen_task: target = screen interaction task jaise "gana search karke play karo", "video chalao", "message bhejo"
                 - toggle: target = torch_on, torch_off, wifi_on, wifi_off, bluetooth_on, bluetooth_off, volume_up, volume_down, volume_mute, brightness_toggle, dnd_on, dnd_off, hotspot_on, hotspot_off, mobile_data_toggle
-                - answer: sawaal ya baatcheet. News maange to target = "news_brief"
+                - answer: sawaal ya casual baatcheet. Agar user sirf baat kar raha hai to actions empty rakho: "actions": [{"type":"answer","target":""}]. News maange to target = "news_brief"
                 - unclear: sach mein samajh na aaye to ek chhota sa sawaal poochho
 
-                Indirect baatein:
-                - bhookh lagi / order karna hai -> open_app Zomato
-                - bore ho raha hu / kuch dekhna hai -> open_app YouTube
-                - andhera hai / kuch dikh nahi raha -> toggle torch_on
-                - aankh dukh rahi / tez roshni -> toggle brightness_toggle
-                - aawaz nahi aa rahi -> toggle volume_up
-                - bohot shor hai -> toggle volume_down
-                - shanti chahiye / sone ja raha hu -> toggle dnd_on
-                - message karna hai -> open_app WhatsApp
+                Explicit request wali indirect baatein (sirf jab user madad maang raha ho):
+                - bhookh lagi hai kuch order kar do -> open_app Zomato
+                - bore ho raha hu kuch chalao / youtube chalao -> open_app YouTube
+                - andhera hai torch jala do / light on karo -> toggle torch_on
+                - aankh dukh rahi brightness kam karo -> toggle brightness_toggle
+                - aawaz nahi aa rahi volume badhao -> toggle volume_up
+                - bohot shor hai aawaz kam karo -> toggle volume_down
+                - sone ja raha hu dnd laga do -> toggle dnd_on
+                - message bhejna hai -> open_app WhatsApp
                 - paise bhejne hain -> open_app GPay
-                - ghoomne jana / cab -> open_app Maps
+                - cab book karni hai / rasta dikhao -> open_app Maps
 
                 Apps: $appsSample
 
@@ -587,6 +591,16 @@ object GeminiReplyService {
     fun generateLocalComprehensionFallback(userQuery: String): GeminiComprehensionResult {
         val lower = userQuery.lowercase()
 
+        // If it's pure casual conversation or feeling, do not treat as task fallback
+        if (!com.example.manager.CommandClassifier.classify(userQuery, emptyList()).isTask) {
+            val spoken = generateLocalConversationalFallback(userQuery)
+            return GeminiComprehensionResult(
+                understoodIntent = "Friendly conversational reply",
+                actions = listOf(ComprehensionAction("answer", "")),
+                replyText = spoken
+            )
+        }
+
         // 1. Compound multi-intent local detection ("YouTube kholo aur volume badha do", "YouTube kholo aur gana chalao", etc.)
         val connectorRegex = Regex(" aur | and | phir | fir | tatha | then ")
         if (connectorRegex.containsMatchIn(lower)) {
@@ -609,79 +623,98 @@ object GeminiReplyService {
             }
         }
 
-        // 2. Idiomatic & Single Intent Fallbacks
+        // 1.5 Strict False-Positive Check: If narrative, past-tense, or casual chitchat is detected,
+        // do NOT generate any task actions; respond strictly with conversational answer!
+        val isCasualOrNarrative = listOf(
+            "dekha tha", "dekhi thi", "suna tha", "suni thi", "hua tha", "gaya tha",
+            "use kiya", "use kiya tha", "chal raha tha", "baat kar raha tha", "kharida tha",
+            "khareeda tha", "liya tha", "pyaari hai", "achha hai", "mast hai", "pasand hai",
+            "kya haal", "kaise ho", "theek se connect nahi hota", "theek nahi chal raha",
+            "kya hota hai", "kaise karte hain", "password kya hai", "kaise chalega"
+        ).any { lower.contains(it) }
+
+        if (isCasualOrNarrative) {
+            val spoken = generateLocalConversationalFallback(userQuery)
+            return GeminiComprehensionResult(
+                understoodIntent = "Friendly conversational reply (casual chat detected)",
+                actions = listOf(ComprehensionAction("answer", "")),
+                replyText = spoken
+            )
+        }
+
+        // 2. Idiomatic & Single Intent Fallbacks (Require clear action request or explicit need)
         return when {
-            lower.contains("bhookh") || lower.contains("khana") || lower.contains("order kar") || lower.contains("swiggy") || lower.contains("zomato") -> {
+            (lower.contains("bhookh") || lower.contains("khana")) && (lower.contains("order") || lower.contains("kuch khilao") || lower.contains("swiggy") || lower.contains("zomato")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Order food / open delivery app",
                     actions = listOf(ComprehensionAction("open_app", "Zomato")),
                     replyText = "Bhookh lagi hai to chaliye Zomato khol deta hoon, kuch swadisht order kar lijiye!"
                 )
             }
-            lower.contains("gaana") || lower.contains("song") || lower.contains("music") || lower.contains("bore") || lower.contains("bajao") || lower.contains("chalao") || lower.contains("dekhne ka mann") -> {
+            (lower.contains("gaana") || lower.contains("song") || lower.contains("music") || lower.contains("bore")) && (lower.contains("bajao") || lower.contains("chalao") || lower.contains("play") || lower.contains("sunao")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Play music or video for entertainment",
                     actions = listOf(ComprehensionAction("open_app", "YouTube")),
                     replyText = "Haan bilkul! Main aapke liye YouTube chala raha hoon, thoda mood refresh ho jayega!"
                 )
             }
-            lower.contains("andhera") || lower.contains("dark") || lower.contains("roshni") || lower.contains("light") || lower.contains("dikh nahi") || lower.contains("batti") -> {
+            (lower.contains("andhera") || lower.contains("dark")) && (lower.contains("torch") || lower.contains("light") || lower.contains("jala") || lower.contains("on karo") || lower.contains("chalu")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Turn on torch for visibility",
                     actions = listOf(ComprehensionAction("toggle", "torch_on")),
                     replyText = "Rukiye, main torch chalu kar deta hoon taaki aapko saaf dikhe."
                 )
             }
-            lower.contains("chamak") || lower.contains("aankh") || lower.contains("tez") || lower.contains("bright") || lower.contains("chub") -> {
+            (lower.contains("chamak") || lower.contains("aankh") || lower.contains("tez")) && (lower.contains("brightness") || lower.contains("kam") || lower.contains("dheere")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Adjust screen brightness",
                     actions = listOf(ComprehensionAction("toggle", "brightness_toggle")),
                     replyText = "Maine screen ki brightness adjust kar di hai, ab aankhon ko aaram milega."
                 )
             }
-            lower.contains("shor") || lower.contains("dheere") || lower.contains("dheeme") || lower.contains("awaz kam") || lower.contains("aawaz kam") -> {
+            (lower.contains("shor") || lower.contains("tez aawaz") || lower.contains("bohot tej")) && (lower.contains("volume") || lower.contains("kam") || lower.contains("dheere") || lower.contains("aawaz")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Lower volume",
                     actions = listOf(ComprehensionAction("toggle", "volume_down")),
                     replyText = "Main aawaz thodi dheere kar deta hoon."
                 )
             }
-            lower.contains("sunai nahi") || lower.contains("awaz badhao") || lower.contains("aawaz badhao") || lower.contains("tez aawaz") -> {
+            (lower.contains("sunai nahi") || lower.contains("kam aawaz")) && (lower.contains("volume") || lower.contains("badha") || lower.contains("tez") || lower.contains("aawaz")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Increase volume",
                     actions = listOf(ComprehensionAction("toggle", "volume_up")),
                     replyText = "Main aawaz badha deta hoon taaki saaf sunai de."
                 )
             }
-            lower.contains("shanti") || lower.contains("disturb") || lower.contains("silent") || lower.contains("padhai") || lower.contains("sone") -> {
+            (lower.contains("shanti") || lower.contains("sone ja raha")) && (lower.contains("dnd") || lower.contains("disturb") || lower.contains("silent") || lower.contains("laga do") || lower.contains("on karo")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Activate Do Not Disturb",
                     actions = listOf(ComprehensionAction("toggle", "dnd_on")),
                     replyText = "Main Do Not Disturb chalu kar raha hoon taaki koi shanti kharab na kare."
                 )
             }
-            lower.contains("baat karni") || lower.contains("message") || lower.contains("chat") -> {
+            (lower.contains("baat karni") || lower.contains("message bhejna")) && (lower.contains("whatsapp") || lower.contains("chat") || lower.contains("kholo")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Open WhatsApp for communication",
                     actions = listOf(ComprehensionAction("open_app", "WhatsApp")),
                     replyText = "Main WhatsApp open kar raha hoon, baat kar lijiye."
                 )
             }
-            lower.contains("paise") || lower.contains("payment") || lower.contains("bhejne") -> {
+            (lower.contains("paise") || lower.contains("payment")) && (lower.contains("bhejne") || lower.contains("karna hai") || lower.contains("gpay") || lower.contains("paytm")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Open payment app",
                     actions = listOf(ComprehensionAction("open_app", "GPay")),
                     replyText = "Main payment ke liye app open kar deta hoon."
                 )
             }
-            lower.contains("ghoomne") || lower.contains("cab") || lower.contains("rasta") -> {
+            (lower.contains("ghoomne") || lower.contains("cab") || lower.contains("rasta")) && (lower.contains("maps") || lower.contains("dikhana") || lower.contains("chalo") || lower.contains("kholo")) -> {
                 GeminiComprehensionResult(
                     understoodIntent = "Open navigation / maps",
                     actions = listOf(ComprehensionAction("open_app", "Maps")),
                     replyText = "Main Maps open kar raha hoon, rasta dekh lijiye."
                 )
             }
-            lower.contains("wahi") || lower.contains("pichla") || lower.contains("pehle jaisa") -> {
+            (lower.contains("wahi") || lower.contains("pichla") || lower.contains("pehle jaisa")) && (lower.contains("kholo") || lower.contains("chalao") || lower.contains("open")) -> {
                 val lastApp = AppContextManager.getCurrentApp()
                 if (lastApp != null) {
                     GeminiComprehensionResult(
@@ -710,10 +743,13 @@ object GeminiReplyService {
 
     private fun extractFallbackAction(part: String): ComprehensionAction? {
         val p = part.lowercase()
+        val hasActionVerb = listOf("kholo", "khol", "open", "chalao", "chala", "start", "launch", "on", "off", "band", "chalu", "badha", "kam", "jalao", "bujhao", "play", "pause").any { p.contains(it) }
+        if (!hasActionVerb) return null
+
         return when {
-            p.contains("youtube") -> ComprehensionAction("open_app", "YouTube")
-            p.contains("whatsapp") -> ComprehensionAction("open_app", "WhatsApp")
-            p.contains("zomato") || p.contains("swiggy") || p.contains("khana") || p.contains("bhookh") -> ComprehensionAction("open_app", "Zomato")
+            p.contains("youtube") && (p.contains("kholo") || p.contains("open") || p.contains("chalao")) -> ComprehensionAction("open_app", "YouTube")
+            p.contains("whatsapp") && (p.contains("kholo") || p.contains("open")) -> ComprehensionAction("open_app", "WhatsApp")
+            (p.contains("zomato") || p.contains("swiggy")) && (p.contains("kholo") || p.contains("open") || p.contains("order")) -> ComprehensionAction("open_app", "Zomato")
             p.contains("volume") && (p.contains("badha") || p.contains("up") || p.contains("tez")) -> ComprehensionAction("toggle", "volume_up")
             p.contains("volume") && (p.contains("kam") || p.contains("down") || p.contains("dheere")) -> ComprehensionAction("toggle", "volume_down")
             p.contains("torch") && (p.contains("on") || p.contains("chalu") || p.contains("jalao")) -> ComprehensionAction("toggle", "torch_on")
@@ -725,9 +761,8 @@ object GeminiReplyService {
             p.contains("brightness") -> ComprehensionAction("toggle", "brightness_toggle")
             p.contains("dnd") -> ComprehensionAction("toggle", "dnd_on")
             // Screen task & media control (songs, videos, play, search)
-            p.contains("gaana") || p.contains("gana") || p.contains("song") || p.contains("music") ||
-            p.contains("chalao") || p.contains("play") || p.contains("bajao") || p.contains("baja do") ||
-            p.contains("chala do") || p.contains("search") -> {
+            (p.contains("gaana") || p.contains("gana") || p.contains("song") || p.contains("music")) &&
+            (p.contains("chalao") || p.contains("play") || p.contains("bajao") || p.contains("baja do") || p.contains("chala do") || p.contains("search")) -> {
                 ComprehensionAction("screen_task", part.trim())
             }
             p.contains("pause") || p.contains("stop") || p.contains("next") || p.contains("previous") -> {
