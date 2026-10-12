@@ -102,7 +102,31 @@ object AppContextManager {
             currentActiveApp = app,
             recentInteractions = updatedList
         )
+        // Exact Required Debug Log: "ACTIVE_APP_CONTEXT: current=<app-naam>"
+        DebugLogger.logActiveAppContext(app.name)
         DebugLogger.logInfo("Context updated: Current App is '${app.name}'")
+    }
+
+    /**
+     * Updates active app context when window changes in AccessibilityService
+     */
+    fun recordCurrentPackage(packageName: String, label: String? = null) {
+        if (packageName.isBlank() || packageName.startsWith("com.android.systemui")) return
+        val current = _contextState.value.currentActiveApp
+        if (current?.packageName == packageName) return // Already active
+
+        val appName = label?.ifBlank { null } ?: packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+        val app = InstalledApp(name = appName, packageName = packageName)
+        val currentList = _contextState.value.recentInteractions
+        val newRecord = InteractionRecord.AppOpened(app)
+        val updatedList = (listOf(newRecord) + currentList).take(MAX_HISTORY)
+
+        _contextState.value = _contextState.value.copy(
+            currentActiveApp = app,
+            recentInteractions = updatedList
+        )
+        DebugLogger.logActiveAppContext(app.name)
+        DebugLogger.logInfo("Context updated from Window: Current App is '${app.name}' ($packageName)")
     }
 
     fun recordHardwareToggle(feature: HardwareFeature, actionDescription: String, targetState: Boolean? = null) {

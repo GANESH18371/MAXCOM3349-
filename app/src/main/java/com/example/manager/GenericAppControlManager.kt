@@ -165,19 +165,24 @@ object GenericAppControlManager {
                         action = parsed.action,
                         query = parsed.query
                     ) { success, details ->
-                        val spoken = when (parsed.action) {
+                        val baseActionText = when (parsed.action) {
                             "pause" -> "Pause kar diya"
                             "next" -> "Agla gaana chala diya"
                             "previous" -> "Pichla gaana chala diya"
                             "play" -> if (!parsed.query.isNullOrBlank()) "${parsed.query} chala diya" else "Play kar diya"
                             else -> details
                         }
+                        val spoken = if (success) {
+                            com.example.util.ConfirmationPhraseHelper.getConfirmation(baseActionText)
+                        } else {
+                            baseActionText
+                        }
                         TtsManager.speakIfVoiceReady(spoken, caller = "GenericAppControl")
                         onComplete(success, spoken)
                     }
                 } else {
                     // Accessibility fallback: open media app directly and confirm
-                    val fallbackMsg = "${parsed.targetApp} par ${parsed.action} request bhej di gayi"
+                    val fallbackMsg = com.example.util.ConfirmationPhraseHelper.getConfirmation("${parsed.targetApp} par ${parsed.action} request bhej di gayi")
                     TtsManager.speakIfVoiceReady(fallbackMsg, caller = "GenericAppControl")
                     onComplete(true, fallbackMsg)
                 }

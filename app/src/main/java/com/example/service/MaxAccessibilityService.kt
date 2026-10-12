@@ -47,6 +47,14 @@ class MaxAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Track current foreground app context
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString()
+            if (!pkg.isNullOrBlank() && pkg != packageName) {
+                com.example.manager.AppContextManager.recordCurrentPackage(pkg)
+            }
+        }
+
         // Zero Background Overhead: Only inspect screen nodes when an active command is waiting for tile matching
         if (!isSearching || pendingTargetKeywords.isNullOrEmpty()) return
 
@@ -754,6 +762,138 @@ class MaxAccessibilityService : AccessibilityService() {
             if (res != null) return res
         }
         return null
+    }
+
+    /**
+     * GENERIC MULTI-STEP IN-APP ACTION AUTOMATION:
+     * Reads current screen via Accessibility Node Tree, determines UI elements,
+     * uses Gemini Screen Understanding + heuristics to execute multi-step in-app operations
+     * sequentially (e.g. search-icon -> type query -> submit/enter/first-result -> click/play/subscribe/follow).
+     *
+     * Emits Debug Log: "MULTI_STEP_ACTION: steps_identified=<count>, steps_executed=<count>"
+     */
+    fun executeGenericInAppAction(
+        actionDescription: String,
+        onFinished: (Boolean, String) -> Unit
+    ) {
+        serviceScope.launch {
+            try {
+                // Step 1: Let target UI settle
+                delay(650L)
+                var root = rootInActiveWindow
+                val lowerAction = actionDescription.lowercase(Locale.getDefault())
+
+                var stepsIdentified = 1
+                var stepsExecuted = 0
+
+                val isSearchAction = lowerAction.contains("search") || lowerAction.contains("khoj") ||
+                        lowerAction.contains("dhoondo") || lowerAction.contains("lagao") ||
+                        lowerAction.contains("play") || lowerAction.contains("chalao")
+
+                if (isSearchAction) {
+                    // Extract search query
+                    val query = extractQueryFromAction(actionDescription)
+                    stepsIdentified = if (query.isNotBlank()) 3 else 1
+
+                    // Step A: Look for Search or EditText directly
+                    var searchInput = findEditTextNode(root)
+                    if (searchInput == null) {
+                        val searchBtn = findSearchOrComposeButton(root)
+                            ?: findNodeWithTextOrDesc(root, "Search")
+                            ?: findNodeWithTextOrDesc(root, "खोजें")
+                        if (searchBtn != null && clickNodeSafely(searchBtn)) {
+                            stepsExecuted++
+                            delay(500L)
+                            root = rootInActiveWindow
+                            searchInput = findEditTextNode(root)
+                        }
+                    }
+
+                    if (searchInput != null && query.isNotBlank()) {
+                        val typed = typeTextIntoNode(searchInput, query)
+                        if (typed) {
+                            stepsExecuted++
+                            delay(600L)
+                            root = rootInActiveWindow
+
+                            // Step B: Submit search or click first playable/clickable item
+                            val firstResult = findFirstPlayableResult(root, query)
+                                ?: findFirstClickableItem(root)
+                            if (firstResult != null && clickNodeSafely(firstResult)) {
+                                stepsExecuted++
+                                DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
+                                onFinished(true, "Action executed for '$query'")
+                                return@launch
+                            }
+                        }
+                    }
+                }
+
+                // If not search or direct search didn't finish, do Generic Element Discovery & Gemini Screen Understanding
+                val visibleElements = collectClickableElements(root)
+                if (visibleElements.isNotEmpty()) {
+                    stepsIdentified = maxOf(stepsIdentified, 1)
+                    val resolvedTarget = GeminiReplyService.resolveScreenActionTarget(
+                        actionIntent = actionDescription,
+                        screenElements = visibleElements
+                    )
+
+                    if (resolvedTarget.isNotBlank() && !resolvedTarget.equals("NONE", ignoreCase = true)) {
+                        val node = findNodeWithTextOrDesc(root, resolvedTarget)
+                        if (node != null && clickNodeSafely(node)) {
+                            stepsExecuted++
+                            DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
+                            onFinished(true, "Clicked $resolvedTarget")
+                            return@launch
+                        }
+                    }
+
+                    // Direct heuristic match on action keywords (e.g., "subscribe", "follow", "play", "like")
+                    val actionKeywords = extractKeyTargetWords(lowerAction)
+                    for (kw in actionKeywords) {
+                        val match = findNodeWithTextOrDesc(root, kw)
+                        if (match != null && clickNodeSafely(match)) {
+                            stepsExecuted++
+                            DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
+                            onFinished(true, "Clicked element matching '$kw'")
+                            return@launch
+                        }
+                    }
+                }
+
+                DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
+                onFinished(stepsExecuted > 0, if (stepsExecuted > 0) "Partial steps executed" else "Target element not found on screen")
+
+            } catch (e: Exception) {
+                Log.w(TAG, "Error in executeGenericInAppAction", e)
+                DebugLogger.logMultiStepAction(1, 0)
+                onFinished(false, e.message ?: "Screen action error")
+            }
+        }
+    }
+
+    private fun extractQueryFromAction(action: String): String {
+        var clean = action
+        val prefixes = listOf(
+            "search karo aur lagao", "search karo aur play karo", "search karo", "search",
+            "play karo", "chalao", "lagao", "bajao", "par", "pe", "mein", "me"
+        )
+        for (p in prefixes) {
+            clean = clean.replace(Regex("(?i)\\b$p\\b"), " ")
+        }
+        return clean.replace(Regex("\\s+"), " ").trim()
+    }
+
+    private fun extractKeyTargetWords(lowerAction: String): List<String> {
+        val keywords = mutableListOf<String>()
+        if (lowerAction.contains("subscribe")) keywords.add("subscribe")
+        if (lowerAction.contains("unsubscribe")) keywords.add("unsubscribe")
+        if (lowerAction.contains("follow")) keywords.add("follow")
+        if (lowerAction.contains("unfollow")) keywords.add("unfollow")
+        if (lowerAction.contains("play") || lowerAction.contains("chalao")) keywords.add("play")
+        if (lowerAction.contains("pause") || lowerAction.contains("roko")) keywords.add("pause")
+        if (lowerAction.contains("like")) keywords.add("like")
+        return keywords
     }
 
     private fun resetSearch() {

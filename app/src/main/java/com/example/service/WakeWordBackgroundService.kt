@@ -85,6 +85,7 @@ class WakeWordBackgroundService : Service() {
             _isServiceActive.value = false
             DebugLogger.logAudioRecordState("error")
             DebugLogger.logWakeWordServiceStarted(false)
+            DebugLogger.logWakeWordServiceState("stopped", "permission_denied")
             DebugLogger.logMicStreamActive(false)
             stopSelf()
             return
@@ -106,6 +107,7 @@ class WakeWordBackgroundService : Service() {
             Log.e(TAG, "Failed to start foreground service", e)
             _isServiceActive.value = false
             DebugLogger.logWakeWordServiceStarted(false)
+            DebugLogger.logWakeWordServiceState("stopped", "foreground_init_failed: ${e.message}")
             stopSelf()
             return
         }
@@ -118,14 +120,17 @@ class WakeWordBackgroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val reason = intent?.getStringExtra(EXTRA_REASON) ?: "service_started"
         // Log service running state on command start
         DebugLogger.logWakeWordServiceRunning(true, getCurrentTimestamp())
+        DebugLogger.logWakeWordServiceState("running", reason)
         return START_STICKY
     }
 
     override fun onDestroy() {
         _isServiceActive.value = false
         DebugLogger.logWakeWordServiceRunning(false, getCurrentTimestamp())
+        DebugLogger.logWakeWordServiceState("stopped", "service_destroyed")
         stopAudioStreamListening()
         heartbeatJob?.cancel()
         try {
@@ -295,6 +300,35 @@ class WakeWordBackgroundService : Service() {
                                 lastAttemptLogTime = now
                                 DebugLogger.logWakeWordDetectionAttempt("rms_level=$rms, samples=$read")
                             }
+
+                            // When vocal energy is detected and WakeWord is enabled:
+                            if (rms > 70 && WakeWordManager.isEnabled.value) {
+                                val audioChunk = buffer.copyOf(read)
+                                val verified = WakeWordManager.verifyAndTrigger(
+                                    this@WakeWordBackgroundService,
+                                    "Hey Max",
+                                    audioChunk
+                                ) {
+                                    // 1. Immediately STOP this background listening service so mic is released!
+                                    stop(this@WakeWordBackgroundService, reason = "activation_triggered")
+                                    // 2. Trigger Max assistant UI and command recognition
+                                    com.example.manager.DefaultAssistantManager.recordAssistTrigger()
+                                    com.example.manager.DefaultAssistantManager.triggerAutoListen()
+                                    try {
+                                        val launchIntent = Intent(this@WakeWordBackgroundService, com.example.MainActivity::class.java).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                            putExtra(com.example.MainActivity.EXTRA_AUTO_START_LISTENING, true)
+                                            putExtra(com.example.MainActivity.EXTRA_TRIGGER_SOURCE, "WAKE_WORD_HEY_MAX")
+                                        }
+                                        startActivity(launchIntent)
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed to launch MainActivity on wake word", e)
+                                    }
+                                }
+                                if (verified) {
+                                    break
+                                }
+                            }
                         } else if (read < 0) {
                             // Error code from AudioRecord indicates mic conflict or hardware error
                             DebugLogger.logAudioSourceConflict(true, "AudioRecord read returned error code $read")
@@ -357,11 +391,12 @@ class WakeWordBackgroundService : Service() {
         private const val TAG = "WakeWordBgService"
         private const val CHANNEL_ID = "max_wakeword_service_channel"
         private const val NOTIFICATION_ID = 2002
+        private const val EXTRA_REASON = "extra_reason"
 
         private val _isServiceActive = MutableStateFlow(false)
         val isServiceActive: StateFlow<Boolean> = _isServiceActive.asStateFlow()
 
-        fun start(context: Context) {
+        fun start(context: Context, reason: String = "manual_start") {
             val hasPermission = ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO
@@ -369,11 +404,15 @@ class WakeWordBackgroundService : Service() {
             if (!hasPermission) {
                 DebugLogger.logAudioPermissionStatus(false)
                 DebugLogger.logWakeWordServiceStarted(false)
+                DebugLogger.logWakeWordServiceState("stopped", "permission_denied")
                 return
             }
 
             try {
-                val intent = Intent(context, WakeWordBackgroundService::class.java)
+                DebugLogger.logWakeWordServiceState("running", reason)
+                val intent = Intent(context, WakeWordBackgroundService::class.java).apply {
+                    putExtra(EXTRA_REASON, reason)
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
                 } else {
@@ -382,11 +421,13 @@ class WakeWordBackgroundService : Service() {
             } catch (e: Throwable) {
                 Log.e(TAG, "Failed to start WakeWordBackgroundService", e)
                 DebugLogger.logWakeWordServiceStarted(false)
+                DebugLogger.logWakeWordServiceState("stopped", "start_exception: ${e.message}")
             }
         }
 
-        fun stop(context: Context) {
+        fun stop(context: Context, reason: String = "manual_stop") {
             try {
+                DebugLogger.logWakeWordServiceState("stopped", reason)
                 val intent = Intent(context, WakeWordBackgroundService::class.java)
                 context.stopService(intent)
             } catch (e: Exception) {

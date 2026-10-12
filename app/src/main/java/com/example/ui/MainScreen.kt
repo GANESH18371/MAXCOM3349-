@@ -153,8 +153,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
         DebugLogger.logAudioPermissionStatus(isGranted)
         if (isGranted) {
             voiceManager.startListening()
-            if (com.example.manager.WakeWordManager.isEnabled.value) {
-                com.example.service.WakeWordBackgroundService.start(context)
+            if (com.example.manager.WakeWordManager.isEnabled.value &&
+                com.example.manager.WakeWordManager.isBackgroundListeningEnabled.value) {
+                com.example.service.WakeWordBackgroundService.start(context, reason = "permission_granted_bg_enabled")
             }
         } else {
             Toast.makeText(context, "Microphone permission required for voice commands", Toast.LENGTH_SHORT).show()
@@ -164,16 +165,21 @@ fun MainScreen(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         DebugLogger.logAudioPermissionStatus(hasMic)
-        if (com.example.manager.WakeWordManager.isEnabled.value && hasMic) {
-            com.example.service.WakeWordBackgroundService.start(context)
+        if (com.example.manager.WakeWordManager.isEnabled.value &&
+            com.example.manager.WakeWordManager.isBackgroundListeningEnabled.value &&
+            hasMic) {
+            com.example.service.WakeWordBackgroundService.start(context, reason = "app_launch_bg_enabled")
         }
     }
 
-    // Trigger voice listening helper
+    // Trigger voice listening helper (Bubble tap / mic button)
     val triggerVoiceListening: () -> Unit = {
         if (voiceState is VoiceState.Listening) {
             voiceManager.stopListening()
         } else {
+            if (com.example.service.WakeWordBackgroundService.isServiceActive.value) {
+                com.example.service.WakeWordBackgroundService.stop(context, reason = "manual_mic_tap")
+            }
             val hasPermission = ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO

@@ -235,7 +235,8 @@ object GeminiReplyService {
                 - False positive action se bacho: Agar user ne bola "aaj maine bluetooth speaker dekha", "wifi ki speed theek aa rahi hai", "youtube par kal ek movie dekhi thi", "aawaz bohot achhi hai", to yeh CONVERSATION hai, koi toggle ya app-open task NAHI. Action list empty rakho: "actions": [{"type":"answer","target":""}].
 
                 Action types:
-                - open_app: target = app ka naam (sirf jab kholne/chalane ka explicit command ho)
+                - open_app: target = app ka naam (sirf jab app kholna ho)
+                - in_app_action: target = generic in-app screen task (jaise "search karo [query] aur play karo", "subscribe karo", "unsubscribe karo", "follow karo", "unfollow karo", "like karo", etc.). Agar user command mein kisi app ko khol kar uske andar action karne ko bole (jaise "YouTube par X search karo aur lagao", "Instagram par Y search karo", "subscribe karo", "follow karo"), to DO actions do: pehle open_app (agar app pehle se khuli na ho), phir in_app_action! Agar user pehle se kisi app mein hai (Context mein Active app dikhe) aur app ka naam nahi liya, to default usi active app par in_app_action lagao.
                 - screen_task: target = screen interaction task jaise "gana search karke play karo", "video chalao", "message bhejo"
                 - toggle: target = torch_on, torch_off, wifi_on, wifi_off, bluetooth_on, bluetooth_off, volume_up, volume_down, volume_mute, brightness_toggle, dnd_on, dnd_off, hotspot_on, hotspot_off, mobile_data_toggle
                 - answer: sawaal ya casual baatcheet. Agar user sirf baat kar raha hai to actions empty rakho: "actions": [{"type":"answer","target":""}]. News maange to target = "news_brief"
@@ -255,7 +256,7 @@ object GeminiReplyService {
 
                 Apps: $appsSample
 
-                reply_text: 1 chhota vaakya, maximum 12 shabd, mere style mein, user ki script mein (Devanagari bola to Devanagari, Roman bola to Roman). News ke liye sirf chhota filler do, jaise "ठीक है, अभी निकालता हूँ"; asli khabrein alag se aayengi. Khabrein, tareekh ya facts kabhi khud mat banao.
+                reply_text: 1 chhota vaakya, maximum 12 shabd, mere style mein, user ki script mein (Devanagari bola to Devanagari, Roman bola to Roman). Kaam complete hone par hamesha consistent style rakho: "Ji Sir, ho gaya" ya action ke saath "Ji Sir, kar diya". News ke liye sirf chhota filler do, jaise "Theek hai, abhi nikalta hoon"; asli khabrein alag se aayengi. Khabrein, tareekh ya facts kabhi khud mat banao.
 
                 Sirf JSON do:
                 {"understood_intent":"","actions":[{"type":"","target":""}],"reply_text":""}
@@ -767,9 +768,19 @@ object GeminiReplyService {
             p.contains("bluetooth") && (p.contains("off") || p.contains("band")) -> ComprehensionAction("toggle", "bluetooth_off")
             p.contains("brightness") -> ComprehensionAction("toggle", "brightness_toggle")
             p.contains("dnd") -> ComprehensionAction("toggle", "dnd_on")
+            // In-app actions (subscribe, follow, search)
+            p.contains("subscribe") || p.contains("unsubscribe") -> {
+                ComprehensionAction("in_app_action", part.trim())
+            }
+            p.contains("follow") || p.contains("unfollow") -> {
+                ComprehensionAction("in_app_action", part.trim())
+            }
+            p.contains("search") || p.contains("dhoondo") || p.contains("khojo") -> {
+                ComprehensionAction("in_app_action", part.trim())
+            }
             // Screen task & media control (songs, videos, play, search)
             (p.contains("gaana") || p.contains("gana") || p.contains("song") || p.contains("music")) &&
-            (p.contains("chalao") || p.contains("play") || p.contains("bajao") || p.contains("baja do") || p.contains("chala do") || p.contains("search")) -> {
+            (p.contains("chalao") || p.contains("play") || p.contains("bajao") || p.contains("baja do") || p.contains("chala do")) -> {
                 ComprehensionAction("screen_task", part.trim())
             }
             p.contains("pause") || p.contains("stop") || p.contains("next") || p.contains("previous") -> {

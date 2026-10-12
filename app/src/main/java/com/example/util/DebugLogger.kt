@@ -914,6 +914,42 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "WAKEWORD_SERVICE_STATE: <running/stopped>, reason=<kyun stop/start hua>"
+     */
+    fun logWakeWordServiceState(state: String, reason: String) {
+        val logLine = "WAKEWORD_SERVICE_STATE: $state, reason=$reason"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "MULTI_STEP_ACTION: steps_identified=<count>, steps_executed=<count>"
+     */
+    fun logMultiStepAction(stepsIdentified: Int, stepsExecuted: Int) {
+        val logLine = "MULTI_STEP_ACTION: steps_identified=$stepsIdentified, steps_executed=$stepsExecuted"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "ACTIVE_APP_CONTEXT: current=<app-naam>"
+     */
+    fun logActiveAppContext(appName: String) {
+        val logLine = "ACTIVE_APP_CONTEXT: current=$appName"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "CONFIRMATION_PHRASE_USED: <text>"
+     */
+    fun logConfirmationPhraseUsed(text: String) {
+        val logLine = "CONFIRMATION_PHRASE_USED: $text"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

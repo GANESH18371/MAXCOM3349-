@@ -37,7 +37,7 @@ object WakeWordManager {
     private const val TAG = "WakeWordManager"
     private const val PREFS_NAME = "max_wake_word_prefs"
     private const val KEY_WAKE_ENABLED = "wake_word_enabled"
-    private const val KEY_CONTINUOUS_LISTENING = "continuous_wake_listening"
+    private const val KEY_BACKGROUND_LISTENING = "background_wake_listening"
 
     val WAKE_PHRASES = listOf(
         "hey max",
@@ -57,6 +57,10 @@ object WakeWordManager {
     // Observable states
     private val _isEnabled = MutableStateFlow(true)
     val isEnabled: StateFlow<Boolean> = _isEnabled.asStateFlow()
+
+    // Background continuous wake-word listening toggle (DEFAULT: FALSE / OFF to keep mic closed and hide green dot)
+    private val _isBackgroundListeningEnabled = MutableStateFlow(false)
+    val isBackgroundListeningEnabled: StateFlow<Boolean> = _isBackgroundListeningEnabled.asStateFlow()
 
     private val _isEnrolled = MutableStateFlow(false)
     val isEnrolled: StateFlow<Boolean> = _isEnrolled.asStateFlow()
@@ -86,8 +90,10 @@ object WakeWordManager {
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _isEnabled.value = prefs.getBoolean(KEY_WAKE_ENABLED, true)
+        // Background listening defaults to OFF (false) to ensure zero green-dot indicator by default
+        _isBackgroundListeningEnabled.value = prefs.getBoolean(KEY_BACKGROUND_LISTENING, false)
         refreshEnrollmentStatus(context)
-        DebugLogger.logInfo("WakeWordManager Initialized: enabled=${_isEnabled.value}, isEnrolled=${_isEnrolled.value}")
+        DebugLogger.logInfo("WakeWordManager Initialized: enabled=${_isEnabled.value}, backgroundListening=${_isBackgroundListeningEnabled.value}, isEnrolled=${_isEnrolled.value}")
     }
 
     fun setEnabled(context: Context, enabled: Boolean) {
@@ -98,18 +104,44 @@ object WakeWordManager {
         DebugLogger.logInfo("WakeWordManager enabled set to $enabled")
 
         if (enabled) {
+            // Only start background listening service if the user explicitly enabled background listening
+            if (_isBackgroundListeningEnabled.value) {
+                val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.RECORD_AUDIO
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (hasPermission) {
+                    com.example.service.WakeWordBackgroundService.start(context, reason = "wake_word_master_enabled")
+                } else {
+                    DebugLogger.logAudioPermissionStatus(false)
+                    DebugLogger.logWakeWordServiceStarted(false)
+                }
+            }
+        } else {
+            com.example.service.WakeWordBackgroundService.stop(context, reason = "wake_word_master_disabled")
+        }
+    }
+
+    fun setBackgroundListeningEnabled(context: Context, enabled: Boolean) {
+        _isBackgroundListeningEnabled.value = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_BACKGROUND_LISTENING, enabled)
+            .apply()
+        DebugLogger.logInfo("Background Hey-Max listening set to $enabled")
+
+        if (enabled && _isEnabled.value) {
             val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
                 context,
                 android.Manifest.permission.RECORD_AUDIO
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
             if (hasPermission) {
-                com.example.service.WakeWordBackgroundService.start(context)
+                com.example.service.WakeWordBackgroundService.start(context, reason = "background_listening_toggle_on")
             } else {
                 DebugLogger.logAudioPermissionStatus(false)
                 DebugLogger.logWakeWordServiceStarted(false)
             }
         } else {
-            com.example.service.WakeWordBackgroundService.stop(context)
+            com.example.service.WakeWordBackgroundService.stop(context, reason = "background_listening_toggle_off")
         }
     }
 
@@ -162,6 +194,8 @@ object WakeWordManager {
 
         if (isMatch) {
             _lastVerificationStatus.value = "Owner Verified ✓ (Confidence: ${(confidence * 100).toInt()}%)"
+            // Stop background wake-word listening service immediately upon activation so mic closes!
+            com.example.service.WakeWordBackgroundService.stop(context, reason = "activation_triggered")
             // Dual Feedback: Beep + Haptic Vibration
             playActivationConfirmation(context)
             // Trigger Max command listener!

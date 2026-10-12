@@ -120,6 +120,10 @@ class VoiceCommandManager(private val context: Context) {
             DebugLogger.logInfo("Voice listening started (isFollowUp=$isFollowUp)...")
 
             if (!isFollowUp) {
+                // If wake word background service was running, stop it so mic is clean for active command
+                if (com.example.service.WakeWordBackgroundService.isServiceActive.value) {
+                    com.example.service.WakeWordBackgroundService.stop(context, reason = "active_listening_started")
+                }
                 // Initial launch: start conversation session
                 isConversationSessionActive = true
                 clearSilenceTimer()
@@ -229,7 +233,13 @@ class VoiceCommandManager(private val context: Context) {
     private fun isMultiIntentCommand(text: String): Boolean {
         val lower = text.lowercase(Locale.getDefault())
         val connectors = listOf(" aur ", " and ", " phir ", " fir ", " tatha ", " then ")
-        return connectors.any { lower.contains(it) }
+        if (connectors.any { lower.contains(it) }) return true
+
+        // Compound in-app action commands like "YouTube par [gana] search karo aur lagao", "Instagram par follow karo", "subscribe karo"
+        val inAppActions = listOf("search", "subscribe", "unsubscribe", "follow", "unfollow", "like", "lagao", "chalao", "play", "bajao")
+        val hasInAppAction = inAppActions.any { lower.contains(it) }
+        val hasAppPrefix = listOf("par ", "pe ", "me ", "mein ", "mai ").any { lower.contains(it) }
+        return hasInAppAction && hasAppPrefix
     }
 
     private fun cleanLocationAnswer(raw: String): String {
@@ -685,7 +695,7 @@ class VoiceCommandManager(private val context: Context) {
                     AppContextManager.recordAppOpen(matchedApp)
                 }
                 logTaskConfirmation()
-                val replyMsg = "$appLabel khul gaya. Done Sir."
+                val replyMsg = com.example.util.ConfirmationPhraseHelper.getConfirmation("$appLabel khul gaya")
                 AppContextManager.recordConversationExchange(trimmed, replyMsg)
                 _voiceState.value = VoiceState.Success("App opened: $appLabel")
                 speakWithFollowUp(replyMsg, caller = "AppLauncher")
@@ -753,10 +763,28 @@ class VoiceCommandManager(private val context: Context) {
                                 }
                             }
                         }
+                        "in_app_action" -> {
+                            // Sequential in-app accessibility action on current foreground screen
+                            val service = com.example.service.MaxAccessibilityService.instance
+                            if (service != null) {
+                                service.executeGenericInAppAction(action.target) { success, details ->
+                                    DebugLogger.logInfo("In-app action executed: $success ($details)")
+                                }
+                            } else {
+                                // Fallback to media flow
+                                GenericAppControlManager.executeMediaFlow(context, action.target) { _, _ -> }
+                            }
+                            executedCount++
+                        }
                         "screen_task", "media", "generic_control" -> {
                             // Sequential screen / media action triggered immediately after prior action completes
-                            GenericAppControlManager.executeMediaFlow(context, action.target) { success, msg ->
-                                // Screen flow invoked
+                            val service = com.example.service.MaxAccessibilityService.instance
+                            if (service != null && (action.target.contains("subscribe") || action.target.contains("follow") || action.target.contains("search"))) {
+                                service.executeGenericInAppAction(action.target) { _, _ -> }
+                            } else {
+                                GenericAppControlManager.executeMediaFlow(context, action.target) { success, msg ->
+                                    // Screen flow invoked
+                                }
                             }
                             executedCount++
                         }
@@ -778,14 +806,18 @@ class VoiceCommandManager(private val context: Context) {
                             executedCount++
                         }
                         else -> {
-                            if (GenericAppControlManager.isMediaCommand(action.target.lowercase())) {
+                            val service = com.example.service.MaxAccessibilityService.instance
+                            if (service != null && (action.target.contains("subscribe") || action.target.contains("follow") || action.target.contains("search"))) {
+                                service.executeGenericInAppAction(action.target) { _, _ -> }
+                                executedCount++
+                            } else if (GenericAppControlManager.isMediaCommand(action.target.lowercase())) {
                                 GenericAppControlManager.executeMediaFlow(context, action.target) { _, _ -> }
                                 executedCount++
                             }
                         }
                     }
                     if (index < result.actions.size - 1) {
-                        delay(850L) // Settle gap so app opens completely before subsequent action executes
+                        delay(1000L) // Settle gap so app opens completely before subsequent action executes
                     }
                 }
 
@@ -1121,7 +1153,7 @@ class VoiceCommandManager(private val context: Context) {
                 HardwareFeature.VOLUME,
                 if (parsed.explicitPercent != null) "Set to ${parsed.explicitPercent}%" else parsed.action.name
             )
-            speakWithFollowUp("Volume adjust ho gaya. Done Sir.", caller = "HardwareToggle")
+            speakWithFollowUp(com.example.util.ConfirmationPhraseHelper.getConfirmation("Volume adjust ho gaya"), caller = "HardwareToggle")
             return
         }
 
@@ -1141,52 +1173,56 @@ class VoiceCommandManager(private val context: Context) {
             lower.contains("torch") || lower.contains("flashlight") || lower.contains("टॉर्च") || lower.contains("फ्लैशलाइट") || lower.contains("flash") || lower.contains("लाइट") -> {
                 HardwareToggleManager.toggleTorch(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.TORCH, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp(if (targetState == false) "Torch band kar di. Done Sir." else "Torch on kar di. Ji Sir, ho gaya.", caller = "HardwareToggle")
+                val text = if (targetState == false) "Torch band kar di" else "Torch on kar di"
+                speakWithFollowUp(com.example.util.ConfirmationPhraseHelper.getConfirmation(text), caller = "HardwareToggle")
             }
             // WiFi
             lower.contains("wifi") || lower.contains("wi-fi") || lower.contains("वाई-फाई") || lower.contains("वाईफाई") || lower.contains("wlan") -> {
                 val willBeOn = targetState ?: !HardwareToggleManager.isWifiEnabled(context)
                 HardwareToggleManager.toggleWifi(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.WIFI, if (willBeOn) "ON" else "OFF", willBeOn)
-                speakWithFollowUp(if (willBeOn) "WiFi on kar diya. Ji Sir, ho gaya." else "WiFi band kar diya. Done Sir.", caller = "HardwareToggle")
+                val text = if (willBeOn) "WiFi on kar diya" else "WiFi band kar diya"
+                speakWithFollowUp(com.example.util.ConfirmationPhraseHelper.getConfirmation(text), caller = "HardwareToggle")
             }
             // Bluetooth
             lower.contains("bluetooth") || lower.contains("ब्लूटूथ") || lower.contains("bt") -> {
                 val willBeOn = targetState ?: !HardwareToggleManager.isBluetoothEnabled(context)
                 HardwareToggleManager.toggleBluetooth(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.BLUETOOTH, if (willBeOn) "ON" else "OFF", willBeOn)
-                speakWithFollowUp(if (willBeOn) "Bluetooth on kar diya. Ji Sir, ho gaya." else "Bluetooth band kar diya. Done Sir.", caller = "HardwareToggle")
+                val text = if (willBeOn) "Bluetooth on kar diya" else "Bluetooth band kar diya"
+                speakWithFollowUp(com.example.util.ConfirmationPhraseHelper.getConfirmation(text), caller = "HardwareToggle")
             }
             // Mobile Data
             lower.contains("data") || lower.contains("डेटा") || lower.contains("cellular") || lower.contains("net") -> {
                 HardwareToggleManager.toggleMobileData(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.MOBILE_DATA, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp("Mobile Data settings khol di. Done Sir.", caller = "HardwareToggle")
+                speakWithFollowUp(com.example.util.ConfirmationPhraseHelper.getConfirmation("Mobile Data settings khol di"), caller = "HardwareToggle")
             }
             // Hotspot
             lower.contains("hotspot") || lower.contains("हॉटस्पॉट") || lower.contains("tethering") -> {
                 HardwareToggleManager.toggleHotspot(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.HOTSPOT, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp("Hotspot settings khol di. Done Sir.", caller = "HardwareToggle")
+                speakWithFollowUp(com.example.util.ConfirmationPhraseHelper.getConfirmation("Hotspot settings khol di"), caller = "HardwareToggle")
             }
             // Brightness
             lower.contains("brightness") || lower.contains("screen light") || lower.contains("chamak") || lower.contains("ब्राइटनेस") || lower.contains("रोशनी") || lower.contains("चमक") -> {
                 val parsed = HardwareToggleManager.parseVolumeCommand(lower)
                 HardwareToggleManager.toggleBrightness(context, parsed.explicitPercent)
                 AppContextManager.recordHardwareToggle(HardwareFeature.BRIGHTNESS, if (parsed.explicitPercent != null) "${parsed.explicitPercent}%" else "Toggled")
-                speakWithFollowUp("Brightness adjust kar di. Done Sir.", caller = "HardwareToggle")
+                speakWithFollowUp(com.example.util.ConfirmationPhraseHelper.getConfirmation("Brightness adjust kar di"), caller = "HardwareToggle")
             }
             // DND
             lower.contains("dnd") || lower.contains("disturb") || lower.contains("डिस्टर्ब") -> {
                 HardwareToggleManager.toggleDnd(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.DND, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp(if (targetState == false) "Do Not Disturb band kar diya. Done Sir." else "Do Not Disturb on kar diya. Ji Sir, ho gaya.", caller = "HardwareToggle")
+                val text = if (targetState == false) "Do Not Disturb band kar diya" else "Do Not Disturb on kar diya"
+                speakWithFollowUp(com.example.util.ConfirmationPhraseHelper.getConfirmation(text), caller = "HardwareToggle")
             }
             // Airplane Mode
             lower.contains("airplane") || lower.contains("flight") || lower.contains("हवाई मोड") || lower.contains("aeroplane") -> {
                 HardwareToggleManager.toggleAirplaneMode(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.AIRPLANE_MODE, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp("Airplane Mode settings khol di. Done Sir.", caller = "HardwareToggle")
+                speakWithFollowUp(com.example.util.ConfirmationPhraseHelper.getConfirmation("Airplane Mode settings khol di"), caller = "HardwareToggle")
             }
         }
     }

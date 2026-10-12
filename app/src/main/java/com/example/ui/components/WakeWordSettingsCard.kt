@@ -88,6 +88,7 @@ fun WakeWordSettingsCard(
     val scope = rememberCoroutineScope()
 
     val isEnabled by WakeWordManager.isEnabled.collectAsStateWithLifecycle()
+    val isBackgroundListeningEnabled by WakeWordManager.isBackgroundListeningEnabled.collectAsStateWithLifecycle()
     val isEnrolled by WakeWordManager.isEnrolled.collectAsStateWithLifecycle()
     val enrolledCount by WakeWordManager.enrolledCount.collectAsStateWithLifecycle()
     val isEnrolling by WakeWordManager.isEnrolling.collectAsStateWithLifecycle()
@@ -244,6 +245,75 @@ fun WakeWordSettingsCard(
                         uncheckedTrackColor = JarvisSurface
                     ),
                     modifier = Modifier.testTag("wake_word_toggle")
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Background Hey-Max Listening Toggle (DEFAULT: OFF)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(JarvisSurface, RoundedCornerShape(10.dp))
+                    .border(1.dp, JarvisCardBorder, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Background Hey-Max listening",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = JarvisTextPrimary
+                        )
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (isBackgroundListeningEnabled) JarvisNeonGreen.copy(alpha = 0.15f) else JarvisSurface,
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isBackgroundListeningEnabled) JarvisNeonGreen.copy(alpha = 0.4f) else JarvisCardBorder,
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = if (isBackgroundListeningEnabled) "ON" else "OFF (Default)",
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isBackgroundListeningEnabled) JarvisNeonGreen else JarvisTextDim
+                            )
+                        }
+                    }
+                    Text(
+                        text = if (isBackgroundListeningEnabled)
+                            "Continuously listening in background (Android green mic dot is active). Auto-stops on activation."
+                        else
+                            "Default OFF. Mic stays completely OFF (no green dot). Max activates via Bubble-Tap, Mic button, or Gesture.",
+                        fontSize = 9.sp,
+                        color = JarvisTextSecondary
+                    )
+                }
+
+                Switch(
+                    checked = isBackgroundListeningEnabled,
+                    onCheckedChange = { WakeWordManager.setBackgroundListeningEnabled(context, it) },
+                    enabled = isEnabled,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.Black,
+                        checkedTrackColor = JarvisNeonGreen,
+                        uncheckedThumbColor = JarvisTextDim,
+                        uncheckedTrackColor = JarvisSurface
+                    ),
+                    modifier = Modifier.testTag("background_hey_max_listening_toggle")
                 )
             }
 

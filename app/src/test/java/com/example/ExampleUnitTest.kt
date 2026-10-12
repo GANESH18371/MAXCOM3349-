@@ -1088,4 +1088,18 @@ class ExampleUnitTest {
         assertTrue(logs.any { it.message.startsWith("CLASSIFICATION_DECISION: input=WiFi on karo, classified_as=TASK") })
         assertTrue(logs.any { it.message.contains("classified_as=CONVERSATION") && it.message.contains("false_positive_risk=keyword 'YouTube'") })
     }
+
+    @Test
+    fun debugLogger_recordsWakeWordServiceStateLogs() {
+        DebugLogger.clearLogs()
+
+        DebugLogger.logWakeWordServiceState("stopped", "activation_triggered")
+        DebugLogger.logWakeWordServiceState("running", "background_listening_toggle_on")
+        DebugLogger.logWakeWordServiceState("stopped", "manual_mic_tap")
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STATE: stopped, reason=activation_triggered" })
+        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STATE: running, reason=background_listening_toggle_on" })
+        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STATE: stopped, reason=manual_mic_tap" })
+    }
 }
