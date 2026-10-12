@@ -130,7 +130,7 @@ fun VoiceCloningCard(
                     Toast.makeText(context, "PROFILE EXTRACTED ✓ - Voice sample imported", Toast.LENGTH_SHORT).show()
                 } else {
                     isUploadSuccess = false
-                    val errMsg = res.exceptionOrNull()?.message ?: "1-3 second ki .wav/.mp3 file chahiye"
+                    val errMsg = res.exceptionOrNull()?.message ?: "Audio file process nahi ho saki"
                     uploadStatusMessage = "Voice cloning fail hui: $errMsg, dobara try karein"
                     Toast.makeText(context, "Voice cloning fail hui: $errMsg, dobara try karein", Toast.LENGTH_LONG).show()
                 }

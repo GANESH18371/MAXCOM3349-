@@ -48,6 +48,13 @@ class VoiceCommandManager(private val context: Context) {
     private val CONVERSATION_WINDOW_DURATION_SEC = 7
     private var isPendingWeatherLocationQuery = false
 
+    private var activeCommandStartTime: Long = 0L
+
+    fun logTaskConfirmation(durationMs: Long = System.currentTimeMillis() - activeCommandStartTime) {
+        DebugLogger.logResponseType("TASK_CONFIRMATION")
+        DebugLogger.logResponseTimeMs(durationMs)
+    }
+
     private val _voiceState = MutableStateFlow<VoiceState>(VoiceState.Idle)
     val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
 
@@ -240,6 +247,7 @@ class VoiceCommandManager(private val context: Context) {
     }
 
     fun processCommand(commandText: String) {
+        activeCommandStartTime = System.currentTimeMillis()
         val trimmed = commandText.trim()
         DebugLogger.logSttRawText(trimmed)
         if (trimmed.isBlank()) return
@@ -676,7 +684,8 @@ class VoiceCommandManager(private val context: Context) {
                 if (matchedApp != null) {
                     AppContextManager.recordAppOpen(matchedApp)
                 }
-                val replyMsg = "$appLabel khul gaya"
+                logTaskConfirmation()
+                val replyMsg = "$appLabel khul gaya. Done Sir."
                 AppContextManager.recordConversationExchange(trimmed, replyMsg)
                 _voiceState.value = VoiceState.Success("App opened: $appLabel")
                 speakWithFollowUp(replyMsg, caller = "AppLauncher")
@@ -694,13 +703,16 @@ class VoiceCommandManager(private val context: Context) {
         scope.launch {
             var isHandled = false
             val fillerJob = launch {
-                delay(1150L)
+                delay(1150L) // Filler ONLY if genuinely waiting 1+ second for Gemini call
                 if (!isHandled && _voiceState.value is VoiceState.Processing) {
                     val filler = listOf(
-                        "Hmm, dekhta hoon...",
                         "Hmm, samajh raha hoon...",
-                        "Ek second, rukiye..."
+                        "Ek second, dekh raha hoon...",
+                        "Haan, soch raha hoon..."
                     ).random()
+                    val waitMs = System.currentTimeMillis() - activeCommandStartTime
+                    DebugLogger.logResponseType("CONVERSATION_FILLER")
+                    DebugLogger.logResponseTimeMs(waitMs)
                     TtsManager.speakIfVoiceReady(filler, caller = "VoiceComprehension")
                 }
             }
@@ -719,6 +731,8 @@ class VoiceCommandManager(private val context: Context) {
 
                 isHandled = true
                 fillerJob.cancel()
+                val totalMs = System.currentTimeMillis() - activeCommandStartTime
+                DebugLogger.logResponseTimeMs(totalMs)
 
                 DebugLogger.logInfo("Deep Comprehension: intent='${result.understoodIntent}', actionsCount=${result.actions.size}")
 
@@ -1090,6 +1104,7 @@ class VoiceCommandManager(private val context: Context) {
     }
 
     private fun handleHardwareVoiceCommand(lower: String, originalText: String) {
+        logTaskConfirmation()
         if (isVolumeCommand(lower)) {
             val parsed = HardwareToggleManager.parseVolumeCommand(lower)
             if (MaxAccessibilityService.isRunning()) {
@@ -1106,7 +1121,7 @@ class VoiceCommandManager(private val context: Context) {
                 HardwareFeature.VOLUME,
                 if (parsed.explicitPercent != null) "Set to ${parsed.explicitPercent}%" else parsed.action.name
             )
-            speakWithFollowUp("Volume adjust ho gaya", caller = "HardwareToggle")
+            speakWithFollowUp("Volume adjust ho gaya. Done Sir.", caller = "HardwareToggle")
             return
         }
 
@@ -1126,52 +1141,52 @@ class VoiceCommandManager(private val context: Context) {
             lower.contains("torch") || lower.contains("flashlight") || lower.contains("टॉर्च") || lower.contains("फ्लैशलाइट") || lower.contains("flash") || lower.contains("लाइट") -> {
                 HardwareToggleManager.toggleTorch(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.TORCH, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp(if (targetState == false) "Torch band kar di" else "Torch on kar di", caller = "HardwareToggle")
+                speakWithFollowUp(if (targetState == false) "Torch band kar di. Done Sir." else "Torch on kar di. Ji Sir, ho gaya.", caller = "HardwareToggle")
             }
             // WiFi
             lower.contains("wifi") || lower.contains("wi-fi") || lower.contains("वाई-फाई") || lower.contains("वाईफाई") || lower.contains("wlan") -> {
                 val willBeOn = targetState ?: !HardwareToggleManager.isWifiEnabled(context)
                 HardwareToggleManager.toggleWifi(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.WIFI, if (willBeOn) "ON" else "OFF", willBeOn)
-                speakWithFollowUp(if (willBeOn) "WiFi on kar diya" else "WiFi band kar diya", caller = "HardwareToggle")
+                speakWithFollowUp(if (willBeOn) "WiFi on kar diya. Ji Sir, ho gaya." else "WiFi band kar diya. Done Sir.", caller = "HardwareToggle")
             }
             // Bluetooth
             lower.contains("bluetooth") || lower.contains("ब्लूटूथ") || lower.contains("bt") -> {
                 val willBeOn = targetState ?: !HardwareToggleManager.isBluetoothEnabled(context)
                 HardwareToggleManager.toggleBluetooth(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.BLUETOOTH, if (willBeOn) "ON" else "OFF", willBeOn)
-                speakWithFollowUp(if (willBeOn) "Bluetooth on kar diya" else "Bluetooth band kar diya", caller = "HardwareToggle")
+                speakWithFollowUp(if (willBeOn) "Bluetooth on kar diya. Ji Sir, ho gaya." else "Bluetooth band kar diya. Done Sir.", caller = "HardwareToggle")
             }
             // Mobile Data
             lower.contains("data") || lower.contains("डेटा") || lower.contains("cellular") || lower.contains("net") -> {
                 HardwareToggleManager.toggleMobileData(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.MOBILE_DATA, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp("Mobile Data settings khol di hai", caller = "HardwareToggle")
+                speakWithFollowUp("Mobile Data settings khol di. Done Sir.", caller = "HardwareToggle")
             }
             // Hotspot
             lower.contains("hotspot") || lower.contains("हॉटस्पॉट") || lower.contains("tethering") -> {
                 HardwareToggleManager.toggleHotspot(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.HOTSPOT, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp("Hotspot settings khol di hai", caller = "HardwareToggle")
+                speakWithFollowUp("Hotspot settings khol di. Done Sir.", caller = "HardwareToggle")
             }
             // Brightness
             lower.contains("brightness") || lower.contains("screen light") || lower.contains("chamak") || lower.contains("ब्राइटनेस") || lower.contains("रोशनी") || lower.contains("चमक") -> {
                 val parsed = HardwareToggleManager.parseVolumeCommand(lower)
                 HardwareToggleManager.toggleBrightness(context, parsed.explicitPercent)
                 AppContextManager.recordHardwareToggle(HardwareFeature.BRIGHTNESS, if (parsed.explicitPercent != null) "${parsed.explicitPercent}%" else "Toggled")
-                speakWithFollowUp("Brightness adjust kar di hai", caller = "HardwareToggle")
+                speakWithFollowUp("Brightness adjust kar di. Done Sir.", caller = "HardwareToggle")
             }
             // DND
             lower.contains("dnd") || lower.contains("disturb") || lower.contains("डिस्टर्ब") -> {
                 HardwareToggleManager.toggleDnd(context, targetState)
                 AppContextManager.recordHardwareToggle(HardwareFeature.DND, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp(if (targetState == false) "Do Not Disturb band kar diya" else "Do Not Disturb on kar diya", caller = "HardwareToggle")
+                speakWithFollowUp(if (targetState == false) "Do Not Disturb band kar diya. Done Sir." else "Do Not Disturb on kar diya. Ji Sir, ho gaya.", caller = "HardwareToggle")
             }
             // Airplane Mode
             lower.contains("airplane") || lower.contains("flight") || lower.contains("हवाई मोड") || lower.contains("aeroplane") -> {
                 HardwareToggleManager.toggleAirplaneMode(context)
                 AppContextManager.recordHardwareToggle(HardwareFeature.AIRPLANE_MODE, if (targetState == false) "OFF" else "ON", targetState)
-                speakWithFollowUp("Airplane Mode settings khol di hai", caller = "HardwareToggle")
+                speakWithFollowUp("Airplane Mode settings khol di. Done Sir.", caller = "HardwareToggle")
             }
         }
     }

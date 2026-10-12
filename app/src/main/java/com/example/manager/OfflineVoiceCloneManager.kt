@@ -678,46 +678,85 @@ object OfflineVoiceCloneManager {
 
     suspend fun importAudioSampleFromUri(context: Context, uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            // 1. Duration check with MediaMetadataRetriever
+            // 1. Duration & format inspection with MediaMetadataRetriever
             val retriever = MediaMetadataRetriever()
             var durationMs = 0L
+            var mimeType = "audio/wav"
             try {
                 retriever.setDataSource(context, uri)
                 val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 durationMs = durationStr?.toLongOrNull() ?: 0L
+                val extractedMime = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
+                if (!extractedMime.isNullOrBlank()) {
+                    mimeType = extractedMime
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "MediaMetadataRetriever error: ${e.message}")
             } finally {
                 try { retriever.release() } catch (_: Exception) {}
             }
 
-            if (durationMs > 0 && (durationMs < 800L || durationMs > 6000L)) {
-                return@withContext Result.failure(
-                    IllegalArgumentException("1-3 second ki .wav/.mp3 file chahiye")
-                )
-            }
-
-            // 2. Decode audio into 16kHz 16-bit Mono PCM
+            // 2. Decode audio into 16kHz 16-bit Mono PCM (Flexible for WAV, MP3, M4A, AAC, high bitrate)
             val pcm = decodeAudioUriToPcm16k(context, uri)
-                ?: return@withContext Result.failure(
-                    IllegalArgumentException("1-3 second ki .wav/.mp3 file chahiye")
-                )
-
-            val durationSec = pcm.size.toFloat() / SAMPLE_RATE.toFloat()
-            if (durationSec < 0.8f || durationSec > 6.0f) {
+            if (pcm == null || pcm.size < 512) {
+                val durStr = if (durationMs > 0) "${durationMs}ms" else "0s"
+                DebugLogger.logUploadedVoiceQualityCheck(duration = durStr, format = mimeType, accepted = false)
                 return@withContext Result.failure(
-                    IllegalArgumentException("1-3 second ki .wav/.mp3 file chahiye")
+                    IllegalArgumentException("Audio file read nahi ho saki ya khali hai")
                 )
             }
 
-            // 3. Save standard 16kHz mono WAV file
+            // 3. Flexible Auto-Trim / Conversion Pipeline:
+            // High-quality voice samples (e.g. from ElevenLabs or long recordings) should NOT be rejected!
+            // If longer than 3.5 seconds, auto-trim to the best 3.5 seconds of vocal speech.
+            val targetMaxSamples = (3.5 * SAMPLE_RATE).toInt() // 3.5s * 16000 = 56000 samples
+            val finalPcm = if (pcm.size > targetMaxSamples) {
+                // Find speech start (skip initial silence / noise floor)
+                var startIdx = 0
+                for (i in 0 until minOf(pcm.size - 8000, 16000 * 2)) {
+                    if (kotlin.math.abs(pcm[i].toInt()) > 400) {
+                        startIdx = maxOf(0, i - 800) // 50ms pre-voice margin
+                        break
+                    }
+                }
+                val availableLen = minOf(targetMaxSamples, pcm.size - startIdx)
+                val trimmed = ShortArray(availableLen)
+                System.arraycopy(pcm, startIdx, trimmed, 0, availableLen)
+                trimmed
+            } else if (pcm.size < 16000) {
+                // If under 1 second, pad smoothly so biometric embedding extractor has sufficient frames
+                val padded = ShortArray(16000)
+                System.arraycopy(pcm, 0, padded, 0, pcm.size)
+                var writeIdx = pcm.size
+                while (writeIdx < 16000) {
+                    val copyLen = minOf(pcm.size, 16000 - writeIdx)
+                    System.arraycopy(pcm, 0, padded, writeIdx, copyLen)
+                    writeIdx += copyLen
+                }
+                padded
+            } else {
+                pcm
+            }
+
+            val durationSec = finalPcm.size.toFloat() / SAMPLE_RATE.toFloat()
+            val durationFormatted = "${String.format(Locale.US, "%.1f", durationSec)}s"
+
+            // Exact Required Debug Log:
+            // "UPLOADED_VOICE_QUALITY_CHECK: duration=<>, format=<>, accepted=<true/false>"
+            DebugLogger.logUploadedVoiceQualityCheck(
+                duration = durationFormatted,
+                format = mimeType,
+                accepted = true
+            )
+
+            // 4. Save standard 16kHz mono WAV file
             val wavFile = getSampleFile(context)
             if (wavFile.exists()) wavFile.delete()
 
             val rawTempFile = File(context.cacheDir, "uploaded_pcm.raw")
-            val byteBuf = ByteArray(pcm.size * 2)
-            for (i in pcm.indices) {
-                val s = pcm[i].toInt()
+            val byteBuf = ByteArray(finalPcm.size * 2)
+            for (i in finalPcm.indices) {
+                val s = finalPcm[i].toInt()
                 byteBuf[i * 2] = (s and 0x00FF).toByte()
                 byteBuf[i * 2 + 1] = ((s shr 8) and 0x00FF).toByte()
             }
@@ -725,7 +764,7 @@ object OfflineVoiceCloneManager {
             convertPcmToWav(rawTempFile, wavFile, SAMPLE_RATE, 1, 16)
             rawTempFile.delete()
 
-            // 4. Extract pitch, formants & profile
+            // 5. Extract pitch, formants & profile from the enhanced clean sample
             val analyzedPitch = analyzeSamplePitchAndFormants(context, wavFile)
             _detectedPitchHz.value = analyzedPitch
             _sampleDurationSec.value = String.format(Locale.US, "%.1f", durationSec).toFloat()
@@ -738,14 +777,15 @@ object OfflineVoiceCloneManager {
                 .putInt(KEY_PITCH_HZ, analyzedPitch)
                 .apply()
 
-            // 5. Generate biometric owner embedding
+            // 6. Generate biometric owner embedding into CloneTTS / Sherpa-ONNX pipeline
             OwnerVoiceBiometricModel.enrollFromWavFile(context, wavFile)
 
-            DebugLogger.logInfo("Audio file imported & Voice Clone created! Duration: ${_sampleDurationSec.value}s, Pitch: ${analyzedPitch}Hz")
+            DebugLogger.logInfo("Enhanced audio file imported & Voice Clone created! Duration: ${_sampleDurationSec.value}s, Pitch: ${analyzedPitch}Hz")
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error importing audio sample", e)
-            Result.failure(IllegalArgumentException(e.message ?: "1-3 second ki .wav/.mp3 file chahiye"))
+            DebugLogger.logUploadedVoiceQualityCheck(duration = "unknown", format = "unknown", accepted = false)
+            Result.failure(IllegalArgumentException(e.message ?: "Audio file import me samasya aayi"))
         }
     }
 

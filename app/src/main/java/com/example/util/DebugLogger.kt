@@ -887,6 +887,33 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "RESPONSE_TYPE: TASK_CONFIRMATION" or "RESPONSE_TYPE: CONVERSATION_FILLER"
+     */
+    fun logResponseType(type: String) {
+        val logLine = "RESPONSE_TYPE: $type"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "RESPONSE_TIME_MS: <ms>"
+     */
+    fun logResponseTimeMs(ms: Long) {
+        val logLine = "RESPONSE_TIME_MS: $ms"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "UPLOADED_VOICE_QUALITY_CHECK: duration=<>, format=<>, accepted=<true/false>"
+     */
+    fun logUploadedVoiceQualityCheck(duration: String, format: String, accepted: Boolean) {
+        val logLine = "UPLOADED_VOICE_QUALITY_CHECK: duration=$duration, format=$format, accepted=$accepted"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

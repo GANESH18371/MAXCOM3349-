@@ -261,9 +261,16 @@ object GeminiReplyService {
                 {"understood_intent":"","actions":[{"type":"","target":""}],"reply_text":""}
             """.trimIndent()
 
+            // Requirement 5: Conversation-context Gemini ko bhejte waqt SIRF RECENT (last 2-3) tak LIMITED rakho
+            val limitedContext = if (contextSummary.isNotBlank() && contextSummary != "None") {
+                contextSummary.split("; ").take(3).joinToString("; ")
+            } else {
+                "None"
+            }
+
             val userContent = """
                 User: "$userQuery"
-                Context: $contextSummary
+                Context: $limitedContext
             """.trimIndent()
 
             val jsonBody = JSONObject().apply {
