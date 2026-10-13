@@ -609,26 +609,41 @@ object GeminiReplyService {
             )
         }
 
-        // 1. Compound multi-intent local detection ("YouTube kholo aur volume badha do", "YouTube kholo aur gana chalao", etc.)
+        // 1. Compound multi-intent local detection ("YouTube kholo aur volume badha do", "YouTube par gana search karo aur play karo", etc.)
+        val appList = listOf("youtube", "spotify", "instagram", "chrome", "whatsapp", "zomato")
+        val mentionedApp = appList.find { lower.contains(it) }
+
         val connectorRegex = Regex(" aur | and | phir | fir | tatha | then ")
         if (connectorRegex.containsMatchIn(lower)) {
             val parts = lower.split(connectorRegex)
             if (parts.size >= 2) {
                 val act1 = extractFallbackAction(parts[0].trim())
                 val act2 = extractFallbackAction(parts[1].trim())
+
+                if (mentionedApp != null && act1?.type != "open_app") {
+                    val appName = mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                    return GeminiComprehensionResult(
+                        understoodIntent = "App open followed by in-app action",
+                        actions = listOf(ComprehensionAction("open_app", appName), ComprehensionAction("in_app_action", userQuery)),
+                        replyText = com.example.util.ConfirmationPhraseHelper.MULTI_STEP_FINAL_CONFIRMATION
+                    )
+                }
+
                 if (act1 != null && act2 != null) {
-                    val reply = if (act2.type == "screen_task") {
-                        "Haan bilkul, main app khol kar turant command execute kar raha hoon."
-                    } else {
-                        "Bilkul! Main dono kaam ek saath kar raha hoon."
-                    }
                     return GeminiComprehensionResult(
                         understoodIntent = "Multiple sequential actions",
                         actions = listOf(act1, act2),
-                        replyText = reply
+                        replyText = com.example.util.ConfirmationPhraseHelper.MULTI_STEP_FINAL_CONFIRMATION
                     )
                 }
             }
+        } else if (mentionedApp != null && (lower.contains("search") || lower.contains("play") || lower.contains("chalao") || lower.contains("subscribe") || lower.contains("follow") || lower.contains("lagao"))) {
+            val appName = mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+            return GeminiComprehensionResult(
+                understoodIntent = "App open followed by in-app action",
+                actions = listOf(ComprehensionAction("open_app", appName), ComprehensionAction("in_app_action", userQuery)),
+                replyText = com.example.util.ConfirmationPhraseHelper.MULTI_STEP_FINAL_CONFIRMATION
+            )
         }
 
         // 1.5 Strict False-Positive Check: If narrative, past-tense, or casual chitchat is detected,
@@ -751,7 +766,11 @@ object GeminiReplyService {
 
     private fun extractFallbackAction(part: String): ComprehensionAction? {
         val p = part.lowercase()
-        val hasActionVerb = listOf("kholo", "khol", "open", "chalao", "chala", "start", "launch", "on", "off", "band", "chalu", "badha", "kam", "jalao", "bujhao", "play", "pause").any { p.contains(it) }
+        val hasActionVerb = listOf(
+            "kholo", "khol", "open", "chalao", "chala", "start", "launch",
+            "on", "off", "band", "chalu", "badha", "kam", "jalao", "bujhao",
+            "play", "pause", "search", "khojo", "dhoondo", "subscribe", "follow", "like", "lagao", "bajao"
+        ).any { p.contains(it) }
         if (!hasActionVerb) return null
 
         return when {

@@ -695,7 +695,7 @@ class VoiceCommandManager(private val context: Context) {
                     AppContextManager.recordAppOpen(matchedApp)
                 }
                 logTaskConfirmation()
-                val replyMsg = com.example.util.ConfirmationPhraseHelper.getConfirmation("$appLabel khul gaya")
+                val replyMsg = com.example.util.ConfirmationPhraseHelper.getSingleStepConfirmation()
                 AppContextManager.recordConversationExchange(trimmed, replyMsg)
                 _voiceState.value = VoiceState.Success("App opened: $appLabel")
                 speakWithFollowUp(replyMsg, caller = "AppLauncher")
@@ -748,6 +748,9 @@ class VoiceCommandManager(private val context: Context) {
 
                 val actionsCount = result.actions.size
                 var executedCount = 0
+                val hasOpenApp = result.actions.any { it.type.equals("open_app", ignoreCase = true) }
+                val hasInApp = result.actions.any { it.type.equals("in_app_action", ignoreCase = true) || it.type.equals("screen_task", ignoreCase = true) }
+                val isMultiStep = actionsCount > 1 || (hasOpenApp && hasInApp)
 
                 // Sequential execution of all recognized actions in order
                 for ((index, action) in result.actions.withIndex()) {
@@ -760,33 +763,25 @@ class VoiceCommandManager(private val context: Context) {
                                 if (didLaunch) {
                                     AppContextManager.recordAppOpen(matchedApp)
                                     executedCount++
+                                    DebugLogger.logMultiStepActionStep(actionsCount, "app_open", true, "none")
+                                } else {
+                                    DebugLogger.logMultiStepActionStep(actionsCount, "app_open", false, "Could not open ${matchedApp.name}")
                                 }
                             }
                         }
-                        "in_app_action" -> {
+                        "in_app_action", "screen_task", "media", "generic_control" -> {
                             // Sequential in-app accessibility action on current foreground screen
                             val service = com.example.service.MaxAccessibilityService.instance
                             if (service != null) {
-                                service.executeGenericInAppAction(action.target) { success, details ->
-                                    DebugLogger.logInfo("In-app action executed: $success ($details)")
-                                }
+                                val (success, details) = service.executeGenericInAppActionSuspend(action.target)
+                                DebugLogger.logInfo("In-app action executed: $success ($details)")
+                                if (success) executedCount++
                             } else {
                                 // Fallback to media flow
-                                GenericAppControlManager.executeMediaFlow(context, action.target) { _, _ -> }
-                            }
-                            executedCount++
-                        }
-                        "screen_task", "media", "generic_control" -> {
-                            // Sequential screen / media action triggered immediately after prior action completes
-                            val service = com.example.service.MaxAccessibilityService.instance
-                            if (service != null && (action.target.contains("subscribe") || action.target.contains("follow") || action.target.contains("search"))) {
-                                service.executeGenericInAppAction(action.target) { _, _ -> }
-                            } else {
-                                GenericAppControlManager.executeMediaFlow(context, action.target) { success, msg ->
-                                    // Screen flow invoked
+                                GenericAppControlManager.executeMediaFlow(context, action.target) { success, _ ->
+                                    if (success) executedCount++
                                 }
                             }
-                            executedCount++
                         }
                         "toggle" -> {
                             executeDeepComprehensionToggle(action.target)
@@ -807,17 +802,18 @@ class VoiceCommandManager(private val context: Context) {
                         }
                         else -> {
                             val service = com.example.service.MaxAccessibilityService.instance
-                            if (service != null && (action.target.contains("subscribe") || action.target.contains("follow") || action.target.contains("search"))) {
-                                service.executeGenericInAppAction(action.target) { _, _ -> }
-                                executedCount++
+                            if (service != null) {
+                                val (success, _) = service.executeGenericInAppActionSuspend(action.target)
+                                if (success) executedCount++
                             } else if (GenericAppControlManager.isMediaCommand(action.target.lowercase())) {
-                                GenericAppControlManager.executeMediaFlow(context, action.target) { _, _ -> }
-                                executedCount++
+                                GenericAppControlManager.executeMediaFlow(context, action.target) { success, _ ->
+                                    if (success) executedCount++
+                                }
                             }
                         }
                     }
                     if (index < result.actions.size - 1) {
-                        delay(1000L) // Settle gap so app opens completely before subsequent action executes
+                        delay(1200L) // Settle gap so app opens completely before subsequent action executes
                     }
                 }
 
@@ -825,15 +821,29 @@ class VoiceCommandManager(private val context: Context) {
                 // "MULTI_INTENT_ACTIONS: count=<kitne actions mile>, executed=<kitne actually execute hue>"
                 DebugLogger.logMultiIntentActions(count = actionsCount, executed = executedCount)
 
-                // Deliver warm response and keep conversation window open
-                val replyText = if (result.replyText.isNotBlank()) result.replyText else "Main aapke liye kaam kar raha hoon."
+                // Single standardized confirmation spoken ONLY ONCE after all sequential steps complete
+                val isPureConversation = result.actions.all { it.type.equals("answer", ignoreCase = true) }
+                val replyText = when {
+                    isMultiStep && executedCount > 0 -> {
+                        com.example.util.ConfirmationPhraseHelper.getMultiStepFinalConfirmation() // "Ji Sir, kar diya"
+                    }
+                    !isPureConversation && executedCount > 0 -> {
+                        com.example.util.ConfirmationPhraseHelper.getSingleStepConfirmation() // "Ji Sir, ho gaya"
+                    }
+                    result.replyText.isNotBlank() -> {
+                        result.replyText
+                    }
+                    else -> {
+                        com.example.util.ConfirmationPhraseHelper.getSingleStepConfirmation()
+                    }
+                }
 
                 if (result.isRealGeminiResponse) {
                     AppContextManager.recordConversationExchange(trimmed, replyText)
                 }
 
                 _voiceState.value = VoiceState.Success(replyText)
-                speakWithFollowUp(replyText, caller = "VoiceComprehension")
+                speakWithFollowUp(replyText, caller = if (isMultiStep) "MultiStepAction" else "VoiceComprehension")
 
             } catch (e: Exception) {
                 isHandled = true
@@ -865,12 +875,12 @@ class VoiceCommandManager(private val context: Context) {
             scope.launch {
                 delay(300L)
                 handleHardwareVoiceCommand(part2.lowercase(), part2)
-                val msg = "Dono hardware settings adjust ho gayi"
+                val msg = com.example.util.ConfirmationPhraseHelper.getMultiStepFinalConfirmation()
                 AppContextManager.recordConversationExchange(raw, msg)
                 _voiceState.value = VoiceState.Success(msg)
                 // Log multi-intent debug log
                 DebugLogger.logMultiIntentActions(count = 2, executed = 2)
-                speakWithFollowUp(msg, caller = "HardwareToggle")
+                speakWithFollowUp(msg, caller = "MultiStepAction")
             }
             return true
         }
@@ -885,35 +895,54 @@ class VoiceCommandManager(private val context: Context) {
             scope.launch {
                 delay(300L)
                 handleHardwareVoiceCommand(part2.lowercase(), part2)
-                val msg = "${app1.name} khol diya aur hardware setting adjust kar di"
+                val msg = com.example.util.ConfirmationPhraseHelper.getMultiStepFinalConfirmation()
                 AppContextManager.recordConversationExchange(raw, msg)
                 _voiceState.value = VoiceState.Success(msg)
                 // Log multi-intent debug log
                 DebugLogger.logMultiIntentActions(count = 2, executed = 2)
-                speakWithFollowUp(msg, caller = "CompoundCommand")
+                speakWithFollowUp(msg, caller = "MultiStepAction")
             }
             return true
         }
 
-        // Sequential multi-intent: App 1 open + Media/Song play in App 1 (e.g. "YouTube kholo aur yeh gana chalao")
-        val isMedia2 = GenericAppControlManager.isMediaCommand(part2.lowercase()) ||
-                part2.lowercase().let { it.contains("gana") || it.contains("gaana") || it.contains("song") || it.contains("chalao") || it.contains("play") || it.contains("bajao") }
-        if (app1 != null && isMedia2) {
-            val launched = AppOpenManager.launchApp(context, app1)
+        // Sequential multi-intent: App 1 open + In-app action / Media in App 1 (e.g. "YouTube kholo aur yeh gana chalao", "YouTube par gana search karo aur lagao")
+        val isInAppAction2 = GenericAppControlManager.isMediaCommand(part2.lowercase()) ||
+                part2.lowercase().let {
+                    it.contains("gana") || it.contains("gaana") || it.contains("song") ||
+                    it.contains("chalao") || it.contains("play") || it.contains("bajao") ||
+                    it.contains("search") || it.contains("subscribe") || it.contains("unsubscribe") ||
+                    it.contains("follow") || it.contains("unfollow") || it.contains("like") || it.contains("lagao")
+                }
+
+        val resolvedApp = app1 ?: apps.find { lower.contains(it.name.lowercase()) }
+
+        if (resolvedApp != null && isInAppAction2) {
+            val launched = AppOpenManager.launchApp(context, resolvedApp)
             if (launched) {
-                AppContextManager.recordAppOpen(app1)
+                AppContextManager.recordAppOpen(resolvedApp)
+                DebugLogger.logMultiStepActionStep(4, "app_open", true, "none")
             }
             scope.launch {
-                delay(850L) // Wait for app launch to complete
-                GenericAppControlManager.executeMediaFlow(context, part2) { success, details ->
-                    // Media flow completed
+                delay(1200L) // Wait for app UI to settle in foreground
+                val service = com.example.service.MaxAccessibilityService.instance
+                val actionTarget = if (app1 == null) raw else part2
+                if (service != null) {
+                    service.executeGenericInAppAction(actionTarget) { success, details ->
+                        DebugLogger.logMultiIntentActions(count = 2, executed = if (success) 2 else 1)
+                        val reply = com.example.util.ConfirmationPhraseHelper.getMultiStepFinalConfirmation() // "Ji Sir, kar diya"
+                        AppContextManager.recordConversationExchange(raw, reply)
+                        _voiceState.value = VoiceState.Success(reply)
+                        speakWithFollowUp(reply, caller = "MultiStepAction")
+                    }
+                } else {
+                    GenericAppControlManager.executeMediaFlow(context, actionTarget) { success, _ ->
+                        DebugLogger.logMultiIntentActions(count = 2, executed = if (success) 2 else 1)
+                        val reply = com.example.util.ConfirmationPhraseHelper.getMultiStepFinalConfirmation() // "Ji Sir, kar diya"
+                        AppContextManager.recordConversationExchange(raw, reply)
+                        _voiceState.value = VoiceState.Success(reply)
+                        speakWithFollowUp(reply, caller = "MultiStepAction")
+                    }
                 }
-                // Log multi-intent debug log: count=2, executed=2
-                DebugLogger.logMultiIntentActions(count = 2, executed = 2)
-                val reply = "${app1.name} khol diya aur gana chala raha hoon"
-                AppContextManager.recordConversationExchange(raw, reply)
-                _voiceState.value = VoiceState.Success(reply)
-                speakWithFollowUp(reply, caller = "CompoundCommand")
             }
             return true
         }

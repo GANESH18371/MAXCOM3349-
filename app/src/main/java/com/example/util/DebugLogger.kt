@@ -933,6 +933,16 @@ object DebugLogger {
     }
 
     /**
+     * Exact required format: "MULTI_STEP_ACTION: steps_identified=<count>, current_step=<kaunsa>, step_result=<success/fail, error=<reason>>"
+     */
+    fun logMultiStepActionStep(stepsIdentified: Int, currentStep: String, isSuccess: Boolean, error: String = "none") {
+        val resultStr = if (isSuccess) "success, error=$error" else "fail, error=$error"
+        val logLine = "MULTI_STEP_ACTION: steps_identified=$stepsIdentified, current_step=$currentStep, step_result=$resultStr"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
      * Exact required format: "ACTIVE_APP_CONTEXT: current=<app-naam>"
      */
     fun logActiveAppContext(appName: String) {

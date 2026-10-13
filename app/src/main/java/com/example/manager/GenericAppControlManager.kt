@@ -130,6 +130,7 @@ object GenericAppControlManager {
     fun executeMediaFlow(
         context: Context,
         commandText: String,
+        speakConfirmation: Boolean = false,
         onComplete: (Boolean, String) -> Unit
     ) {
         val parsed = parseMediaCommand(commandText)
@@ -154,7 +155,7 @@ object GenericAppControlManager {
                     val didLaunch = AppOpenManager.launchApp(context, targetAppObj)
                     if (didLaunch) {
                         AppContextManager.recordAppOpen(targetAppObj)
-                        delay(900) // Allow media app UI to settle
+                        delay(1200) // Allow media app UI to settle in foreground
                     }
                 }
 
@@ -173,23 +174,29 @@ object GenericAppControlManager {
                             else -> details
                         }
                         val spoken = if (success) {
-                            com.example.util.ConfirmationPhraseHelper.getConfirmation(baseActionText)
+                            com.example.util.ConfirmationPhraseHelper.getSingleStepConfirmation()
                         } else {
                             baseActionText
                         }
-                        TtsManager.speakIfVoiceReady(spoken, caller = "GenericAppControl")
+                        if (speakConfirmation) {
+                            TtsManager.speakIfVoiceReady(spoken, caller = "GenericAppControl")
+                        }
                         onComplete(success, spoken)
                     }
                 } else {
                     // Accessibility fallback: open media app directly and confirm
-                    val fallbackMsg = com.example.util.ConfirmationPhraseHelper.getConfirmation("${parsed.targetApp} par ${parsed.action} request bhej di gayi")
-                    TtsManager.speakIfVoiceReady(fallbackMsg, caller = "GenericAppControl")
+                    val fallbackMsg = com.example.util.ConfirmationPhraseHelper.getSingleStepConfirmation()
+                    if (speakConfirmation) {
+                        TtsManager.speakIfVoiceReady(fallbackMsg, caller = "GenericAppControl")
+                    }
                     onComplete(true, fallbackMsg)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error executing generic media flow", e)
                 val errMsg = "Media control me samasya aayi"
-                TtsManager.speakIfVoiceReady(errMsg, caller = "GenericAppControl")
+                if (speakConfirmation) {
+                    TtsManager.speakIfVoiceReady(errMsg, caller = "GenericAppControl")
+                }
                 onComplete(false, errMsg)
             }
         }

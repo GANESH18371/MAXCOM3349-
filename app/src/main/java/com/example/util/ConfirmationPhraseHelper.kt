@@ -8,19 +8,32 @@ package com.example.util
 object ConfirmationPhraseHelper {
 
     const val STANDARD_CONFIRMATION = "Ji Sir, ho gaya"
+    const val MULTI_STEP_FINAL_CONFIRMATION = "Ji Sir, kar diya"
 
     /**
-     * Returns the standardized confirmation phrase, with optional action context prefix
-     * (e.g. "YouTube par gana chala diya. Ji Sir, ho gaya" or standalone "Ji Sir, ho gaya").
-     * Always logs the confirmation phrase used.
+     * Fast single-step confirmation: "Ji Sir, ho gaya"
+     */
+    fun getSingleStepConfirmation(actionDescription: String? = null): String {
+        val phrase = STANDARD_CONFIRMATION
+        DebugLogger.logConfirmationPhraseUsed(phrase)
+        return phrase
+    }
+
+    /**
+     * Final multi-step completion confirmation: "Ji Sir, kar diya"
+     * Spoken ONLY once after all sequential steps complete.
+     */
+    fun getMultiStepFinalConfirmation(actionDescription: String? = null): String {
+        val phrase = MULTI_STEP_FINAL_CONFIRMATION
+        DebugLogger.logConfirmationPhraseUsed(phrase)
+        return phrase
+    }
+
+    /**
+     * Standardized confirmation phrase helper.
      */
     fun getConfirmation(actionDescription: String? = null): String {
-        val phrase = if (actionDescription.isNullOrBlank()) {
-            STANDARD_CONFIRMATION
-        } else {
-            val cleanDesc = actionDescription.trim().trimEnd('.')
-            "$cleanDesc. $STANDARD_CONFIRMATION"
-        }
+        val phrase = STANDARD_CONFIRMATION
         DebugLogger.logConfirmationPhraseUsed(phrase)
         return phrase
     }

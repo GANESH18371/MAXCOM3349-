@@ -133,8 +133,9 @@ object CommandClassifier {
         val hasAppLaunchVerb = APP_LAUNCH_VERBS.any { lower.contains(it) }
 
         // 4. Multi-intent / Compound command check
+        val hasInAppActionVerb = listOf("search", "play", "subscribe", "unsubscribe", "follow", "unfollow", "like", "lagao", "bajao", "dhoondo", "khojo").any { lower.contains(it) }
         val isCompound = (lower.contains(" aur ") || lower.contains(" and ") || lower.contains(" phir ") || lower.contains(" fir ")) &&
-                (hasHardwareAction || hasAppLaunchVerb)
+                (hasHardwareAction || hasAppLaunchVerb || hasInAppActionVerb)
         if (isCompound && !isConversationalContext) {
             return ClassificationResult(
                 isTask = true,
@@ -261,6 +262,16 @@ object CommandClassifier {
         // Case B: Direct app name spoken alone (<= 3 words, e.g. "YouTube", "यूट्यूब", "WhatsApp", "Chrome")
         val words = trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }
         val isDirectAppNameAlone = matchedApp != null && words.size <= 2 && !hasChitchatMarker && !hasStoryMarker
+        val hasInAppActionVerbForApp = listOf("search", "play", "subscribe", "unsubscribe", "follow", "unfollow", "like", "lagao", "bajao", "dhoondo", "khojo").any { lower.contains(it) }
+        if (matchedApp != null && hasInAppActionVerbForApp) {
+            return ClassificationResult(
+                isTask = true,
+                classifiedAs = "TASK",
+                confidence = "In-app action verb targeting '${matchedApp.name}'",
+                falsePositiveRisk = "none",
+                taskType = "IN_APP_ACTION"
+            )
+        }
 
         if (matchedApp != null && (hasAppLaunchVerb || isDirectAppNameAlone)) {
             val verbDesc = if (isDirectAppNameAlone) "Direct app name spoken alone" else "Explicit launch verb targeting '${matchedApp.name}'"

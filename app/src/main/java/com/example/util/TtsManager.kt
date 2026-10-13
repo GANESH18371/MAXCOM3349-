@@ -172,8 +172,24 @@ object TtsManager {
 
         if (candidateVoices.isEmpty()) return null
 
+        val detectedPitch = com.example.manager.OfflineVoiceCloneManager.detectedPitchHz.value
+        val isMaleOwner = detectedPitch < 165 // Adult male voice fundamental frequency 85-165Hz
+
         return candidateVoices.maxByOrNull { v ->
             var score = 0
+            val n = v.name.lowercase(Locale.ROOT)
+            val isFemaleVoice = n.contains("female") || n.contains("-hie-") || n.contains("-hia-") || n.contains("-hib-") || n.contains("-ena-")
+            val isMaleVoice = n.contains("male") || n.contains("-hid-") || n.contains("-hic-") || n.contains("-cfc-") || n.contains("-end-") || n.contains("-enc-") || n.contains("-cfa-") || n.contains("d-local") || n.contains("c-local")
+
+            // Strictly preserve owner's authentic vocal gender profile to prevent inconsistent female voice
+            if (isMaleOwner) {
+                if (isMaleVoice) score += 300
+                if (isFemaleVoice) score -= 300
+            } else {
+                if (isFemaleVoice) score += 300
+                if (isMaleVoice) score -= 300
+            }
+
             if (v.quality == Voice.QUALITY_VERY_HIGH) score += 100
             else if (v.quality == Voice.QUALITY_HIGH) score += 50
             if (v.locale.country.equals(targetCountry, ignoreCase = true)) score += 40
@@ -348,8 +364,20 @@ object TtsManager {
                 }
             }
 
-            getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
-                ttsEngine.voice = best
+            val selectedVoice = _selectedVoiceId.value
+            if (selectedVoice != "auto_natural") {
+                val matchingVoice = ttsEngine.voices?.find { it.name == selectedVoice }
+                if (matchingVoice != null) {
+                    ttsEngine.voice = matchingVoice
+                } else {
+                    getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
+                        ttsEngine.voice = best
+                    }
+                }
+            } else {
+                getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
+                    ttsEngine.voice = best
+                }
             }
 
             val utteranceId = "cloned_tts_${System.currentTimeMillis()}_${cleanText.hashCode()}"
