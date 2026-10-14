@@ -960,6 +960,34 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "GEMINI_CALL_RESULT: success/fail, error=<reason>"
+     */
+    fun logGeminiCallResult(isSuccess: Boolean, error: String = "none") {
+        val resultStr = if (isSuccess) "success" else "fail"
+        val logLine = "GEMINI_CALL_RESULT: $resultStr, error=$error"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "COMMAND_UNDERSTANDING: input=<text>, classified_as=<>, actions_parsed=<count>"
+     */
+    fun logCommandUnderstanding(input: String, classifiedAs: String, actionsParsed: Int) {
+        val logLine = "COMMAND_UNDERSTANDING: input=$input, classified_as=$classifiedAs, actions_parsed=$actionsParsed"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "TTS_CALL_SOURCE: SettingsTest/ConversationResponse, voice_used=<cloned/default>"
+     */
+    fun logTtsCallSource(source: String, voiceUsed: String) {
+        val logLine = "TTS_CALL_SOURCE: $source, voice_used=$voiceUsed"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
     fun logInfo(msg: String) {
         val logLine = "INFO: $msg"
         safeLog(Log.DEBUG, TAG, logLine)

@@ -214,13 +214,16 @@ object GeminiReplyService {
         val apiKey = com.example.util.SecureApiKeyManager.getApiKey(ctx, "deep_comprehension")
 
         if (apiKey.isBlank()) {
+            DebugLogger.logGeminiCallResult(false, "API key missing or blank")
             DebugLogger.logGeminiRequestSent(false, "API key missing or blank")
             DebugLogger.logGeminiResponseReceived(false, "API key missing, returning local comprehension fallback")
             DebugLogger.logGeminiApiCallStatus("fail, API key missing or blank")
             DebugLogger.logGeminiRawResponse("API key missing or blank in SecureApiKeyManager")
             DebugLogger.logGeminiResponseParsed("null (API key missing)")
             DebugLogger.logFallbackTriggered(true, "API key missing or blank")
-            return@withContext generateLocalComprehensionFallback(userQuery)
+            val fallback = generateLocalComprehensionFallback(userQuery, knownApps)
+            DebugLogger.logCommandUnderstanding(userQuery, if (fallback.actions.any { it.type != "answer" }) "TASK" else "CONVERSATION", fallback.actions.size)
+            return@withContext fallback
         }
 
         try {
@@ -386,52 +389,78 @@ object GeminiReplyService {
                         val rawText = parts.getJSONObject(0).optString("text", "").trim()
                         val parsed = parseComprehensionJson(rawText)
                         if (parsed != null) {
+                            DebugLogger.logGeminiCallResult(true, "none")
+                            DebugLogger.logCommandUnderstanding(userQuery, if (parsed.actions.any { it.type != "answer" }) "TASK" else "CONVERSATION", parsed.actions.size)
                             DebugLogger.logGeminiResponseParsed("intent='${parsed.understoodIntent}', reply='${parsed.replyText}', actions=${parsed.actions.size}")
                             DebugLogger.logFallbackTriggered(false, "none")
                             return@withContext parsed.copy(isRealGeminiResponse = true)
                         } else {
+                            DebugLogger.logGeminiCallResult(false, "JSON parsing failed for text: $rawText")
                             DebugLogger.logGeminiResponseParsed("Failed to parse JSON: $rawText")
                             DebugLogger.logFallbackTriggered(true, "JSON parsing failed for candidate text: $rawText")
                         }
                     } else {
                         val finishReason = candidateObj.optString("finishReason", "unknown")
+                        DebugLogger.logGeminiCallResult(false, "Empty parts, finishReason=$finishReason")
                         DebugLogger.logGeminiResponseParsed("Candidate content parts empty, finishReason=$finishReason")
                         DebugLogger.logFallbackTriggered(true, "Candidate content parts empty, finishReason=$finishReason")
                     }
                 } else {
+                    DebugLogger.logGeminiCallResult(false, "No candidates in response")
                     DebugLogger.logGeminiResponseParsed("Candidates array empty or null in response JSON")
                     DebugLogger.logFallbackTriggered(true, "No candidates array in response JSON")
                 }
             } else {
                 val errorDetails = responseBody ?: if (resp != null) "HTTP ${resp.code}: ${resp.message}" else "HTTP $code"
+                DebugLogger.logGeminiCallResult(false, "HTTP $code: $errorDetails")
                 DebugLogger.logGeminiResponseReceived(false, errorDetails)
                 DebugLogger.logFallbackTriggered(true, "HTTP $code: $errorDetails")
 
-                // BUG 1 FIX 3: If 503 or overload retries fail, return honest message and DO NOT echo or corrupt history
+                // If HTTP failed, try local structured comprehension fallback first so in-app actions succeed
+                val fallback = generateLocalComprehensionFallback(userQuery, knownApps)
+                if (fallback.actions.any { it.type != "answer" }) {
+                    DebugLogger.logCommandUnderstanding(userQuery, "TASK", fallback.actions.size)
+                    return@withContext fallback
+                }
+
+                // If conversation query and 503/server overload, return honest message
                 if (code == 503) {
+                    DebugLogger.logCommandUnderstanding(userQuery, "CONVERSATION", 1)
                     return@withContext GeminiComprehensionResult(
                         understoodIntent = "Gemini server busy (503)",
                         actions = listOf(ComprehensionAction("answer", "")),
-                        replyText = "Abhi Gemini thoda busy hai, thodi der baad try karo.",
+                        replyText = "abhi connect nahi ho pa raha, dobara try karein",
                         isRealGeminiResponse = false
                     )
                 }
             }
         } catch (e: Exception) {
-            DebugLogger.logGeminiApiCallStatus("fail, ${e.javaClass.simpleName}: ${e.message}")
+            val errReason = "${e.javaClass.simpleName}: ${e.message}"
+            DebugLogger.logGeminiCallResult(false, errReason)
+            DebugLogger.logGeminiApiCallStatus("fail, $errReason")
             DebugLogger.logGeminiRawResponse("Exception: ${e.message}")
             DebugLogger.logGeminiResponseReceived(false, "Exception: ${e.message}")
             DebugLogger.logInfo("Gemini deep comprehension exception: ${e.message}")
             DebugLogger.logFallbackTriggered(true, "Exception: ${e.message}")
+
+            val fallback = generateLocalComprehensionFallback(userQuery, knownApps)
+            if (fallback.actions.any { it.type != "answer" }) {
+                DebugLogger.logCommandUnderstanding(userQuery, "TASK", fallback.actions.size)
+                return@withContext fallback
+            }
+
+            DebugLogger.logCommandUnderstanding(userQuery, "CONVERSATION", 1)
             return@withContext GeminiComprehensionResult(
                 understoodIntent = "Gemini request failed",
                 actions = listOf(ComprehensionAction("answer", "")),
-                replyText = "Abhi Gemini thoda busy hai, thodi der baad try karo.",
+                replyText = "abhi connect nahi ho pa raha, dobara try karein",
                 isRealGeminiResponse = false
             )
         }
 
-        return@withContext generateLocalComprehensionFallback(userQuery)
+        val fallback = generateLocalComprehensionFallback(userQuery, knownApps)
+        DebugLogger.logCommandUnderstanding(userQuery, if (fallback.actions.any { it.type != "answer" }) "TASK" else "CONVERSATION", fallback.actions.size)
+        return@withContext fallback
     }
 
     private fun parseComprehensionJson(rawText: String): GeminiComprehensionResult? {
@@ -596,38 +625,20 @@ object GeminiReplyService {
         return@withContext result.replyText
     }
 
-    fun generateLocalComprehensionFallback(userQuery: String): GeminiComprehensionResult {
+    fun generateLocalComprehensionFallback(userQuery: String, knownApps: List<String> = emptyList()): GeminiComprehensionResult {
         val lower = userQuery.lowercase()
 
-        // If it's pure casual conversation or feeling, do not treat as task fallback
-        if (!com.example.manager.CommandClassifier.classify(userQuery, emptyList()).isTask) {
-            val spoken = generateLocalConversationalFallback(userQuery)
-            return GeminiComprehensionResult(
-                understoodIntent = "Friendly conversational reply",
-                actions = listOf(ComprehensionAction("answer", "")),
-                replyText = spoken
-            )
-        }
+        // 1. In-app and Compound multi-intent local detection ("YouTube khol kar yeh gana search karo", "YouTube par gana search karo", etc.)
+        val appList = (listOf("youtube", "spotify", "instagram", "chrome", "whatsapp", "zomato", "swiggy", "maps", "music") + knownApps.map { it.lowercase() }).distinct()
+        val mentionedApp = appList.firstOrNull { lower.contains(it) }
+        val hasInAppAction = listOf("search", "play", "chalao", "subscribe", "unsubscribe", "follow", "unfollow", "lagao", "bajao", "dhoondo", "khojo").any { lower.contains(it) }
+        val connectorRegex = Regex(" aur | and | phir | fir | tatha | then | khol kar | kholkar | khol ke | kholke | open karke | open kar ")
 
-        // 1. Compound multi-intent local detection ("YouTube kholo aur volume badha do", "YouTube par gana search karo aur play karo", etc.)
-        val appList = listOf("youtube", "spotify", "instagram", "chrome", "whatsapp", "zomato")
-        val mentionedApp = appList.find { lower.contains(it) }
-
-        val connectorRegex = Regex(" aur | and | phir | fir | tatha | then ")
         if (connectorRegex.containsMatchIn(lower)) {
             val parts = lower.split(connectorRegex)
             if (parts.size >= 2) {
                 val act1 = extractFallbackAction(parts[0].trim())
                 val act2 = extractFallbackAction(parts[1].trim())
-
-                if (mentionedApp != null && act1?.type != "open_app") {
-                    val appName = mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-                    return GeminiComprehensionResult(
-                        understoodIntent = "App open followed by in-app action",
-                        actions = listOf(ComprehensionAction("open_app", appName), ComprehensionAction("in_app_action", userQuery)),
-                        replyText = com.example.util.ConfirmationPhraseHelper.MULTI_STEP_FINAL_CONFIRMATION
-                    )
-                }
 
                 if (act1 != null && act2 != null) {
                     return GeminiComprehensionResult(
@@ -636,13 +647,34 @@ object GeminiReplyService {
                         replyText = com.example.util.ConfirmationPhraseHelper.MULTI_STEP_FINAL_CONFIRMATION
                     )
                 }
+
+                if (mentionedApp != null) {
+                    val appName = mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                    val targetAction = act2 ?: act1 ?: ComprehensionAction("in_app_action", userQuery)
+                    return GeminiComprehensionResult(
+                        understoodIntent = "App open followed by in-app action",
+                        actions = listOf(ComprehensionAction("open_app", appName), targetAction),
+                        replyText = com.example.util.ConfirmationPhraseHelper.MULTI_STEP_FINAL_CONFIRMATION
+                    )
+                }
             }
-        } else if (mentionedApp != null && (lower.contains("search") || lower.contains("play") || lower.contains("chalao") || lower.contains("subscribe") || lower.contains("follow") || lower.contains("lagao"))) {
+        } else if (mentionedApp != null && (hasInAppAction || lower.contains("search") || lower.contains("play") || lower.contains("chalao") || lower.contains("subscribe") || lower.contains("follow") || lower.contains("lagao"))) {
             val appName = mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
             return GeminiComprehensionResult(
                 understoodIntent = "App open followed by in-app action",
                 actions = listOf(ComprehensionAction("open_app", appName), ComprehensionAction("in_app_action", userQuery)),
                 replyText = com.example.util.ConfirmationPhraseHelper.MULTI_STEP_FINAL_CONFIRMATION
+            )
+        }
+
+        // If it's pure casual conversation or feeling, do not treat as task fallback
+        val classification = com.example.manager.CommandClassifier.classify(userQuery, emptyList())
+        if (!classification.isTask && mentionedApp == null && !hasInAppAction) {
+            val spoken = generateLocalConversationalFallback(userQuery)
+            return GeminiComprehensionResult(
+                understoodIntent = "Friendly conversational reply",
+                actions = listOf(ComprehensionAction("answer", "")),
+                replyText = spoken
             )
         }
 
@@ -836,7 +868,7 @@ object GeminiReplyService {
                 "Arrey dost me shukriya kaisa! Main hamesha yahin hoon."
             }
             else -> {
-                "Abhi Gemini thoda busy hai, thodi der baad try karo."
+                "abhi connect nahi ho pa raha, dobara try karein"
             }
         }
     }

@@ -975,8 +975,8 @@ class MaxAccessibilityService : AccessibilityService() {
             "search karo", "khojo", "dhoondo", "search",
             "par chalao", "pe chalao", "par lagao", "pe lagao",
             "play karo", "chala do", "chalao", "lagao", "bajao", "baja do",
-            "kholo aur", "open karo aur", "khol ke",
-            "par", "pe", "mein", "me", "mai",
+            "kholo aur", "open karo aur", "khol ke", "kholke", "khol kar", "kholkar", "open karke", "open kar",
+            "par", "pe", "mein", "me", "mai", "yeh", "woh",
             "gana", "gaana", "song", "video", "audio", "track",
             "aur", "and", "phir", "fir"
         )

@@ -166,8 +166,14 @@ object TtsManager {
         val targetLang = targetLocale.language.lowercase(Locale.ROOT)
         val targetCountry = targetLocale.country.lowercase(Locale.ROOT)
 
-        val candidateVoices = available.filter { v ->
+        var candidateVoices = available.filter { v ->
             v.locale.language.equals(targetLang, ignoreCase = true)
+        }
+
+        if (candidateVoices.isEmpty()) {
+            candidateVoices = available.filter { v ->
+                v.locale.language.equals("hi", ignoreCase = true) || v.locale.language.equals("en", ignoreCase = true)
+            }
         }
 
         if (candidateVoices.isEmpty()) return null
@@ -178,24 +184,26 @@ object TtsManager {
         return candidateVoices.maxByOrNull { v ->
             var score = 0
             val n = v.name.lowercase(Locale.ROOT)
-            val isFemaleVoice = n.contains("female") || n.contains("-hie-") || n.contains("-hia-") || n.contains("-hib-") || n.contains("-ena-")
-            val isMaleVoice = n.contains("male") || n.contains("-hid-") || n.contains("-hic-") || n.contains("-cfc-") || n.contains("-end-") || n.contains("-enc-") || n.contains("-cfa-") || n.contains("d-local") || n.contains("c-local")
+            val isFemaleVoice = n.contains("female") || n.contains("-hie-") || n.contains("-hia-") || n.contains("-hib-") || n.contains("-ena-") || n.contains("-ene-") || n.contains("-enf-")
+            val isMaleVoice = n.contains("male") || n.contains("-hid-") || n.contains("-hic-") || n.contains("-cfc-") || n.contains("-end-") || n.contains("-enc-") || n.contains("-cfa-") || n.contains("d-local") || n.contains("c-local") || n.contains("-m-")
 
             // Strictly preserve owner's authentic vocal gender profile to prevent inconsistent female voice
             if (isMaleOwner) {
-                if (isMaleVoice) score += 300
-                if (isFemaleVoice) score -= 300
+                if (isMaleVoice) score += 1000
+                if (isFemaleVoice) score -= 1000
             } else {
-                if (isFemaleVoice) score += 300
-                if (isMaleVoice) score -= 300
+                if (isFemaleVoice) score += 1000
+                if (isMaleVoice) score -= 1000
             }
 
-            if (v.quality == Voice.QUALITY_VERY_HIGH) score += 100
-            else if (v.quality == Voice.QUALITY_HIGH) score += 50
+            // Quality & naturalness tuning (BUG 4 Cosmetic Tuning: Set to Highest/Best HD Neural)
+            if (v.quality == Voice.QUALITY_VERY_HIGH) score += 250
+            else if (v.quality == Voice.QUALITY_HIGH) score += 120
+            if (v.name.contains("neural", ignoreCase = true)) score += 200
+            if (v.name.contains("wavenet", ignoreCase = true)) score += 200
+            if (v.name.contains("natural", ignoreCase = true)) score += 150
             if (v.locale.country.equals(targetCountry, ignoreCase = true)) score += 40
             if (!v.isNetworkConnectionRequired) score += 30 // Offline instant latency
-            if (v.name.contains("neural", ignoreCase = true)) score += 60
-            if (v.name.contains("natural", ignoreCase = true)) score += 40
             score
         }
     }
@@ -275,30 +283,32 @@ object TtsManager {
         caller: String = "general",
         queueMode: Int = TextToSpeech.QUEUE_FLUSH,
         onDone: (() -> Unit)? = null
-    ) {
+    ): Boolean {
         val cleanText = sanitizeForSpeech(text)
         if (cleanText.isBlank()) {
             onDone?.let { mainHandler.post { it.invoke() } }
-            return
+            return false
         }
 
         val profileExists = com.example.manager.OfflineVoiceCloneManager.hasRealVoiceProfile(appContext)
+        val source = if (caller.equals("SettingsTest", ignoreCase = true)) "SettingsTest" else "ConversationResponse"
+        val voiceUsed = if (profileExists) "cloned" else "default"
+
+        DebugLogger.logTtsCallSource(source = source, voiceUsed = voiceUsed)
+        DebugLogger.logTtsGateCheck(profileExists = profileExists, caller = caller, action = if (profileExists) "speak" else "skip")
+        DebugLogger.logTtsCallPath(feature = caller, usedCentralGate = true, voiceUsed = voiceUsed)
 
         if (profileExists) {
-            DebugLogger.logTtsGateCheck(profileExists = true, caller = caller, action = "speak")
-            DebugLogger.logTtsCallPath(feature = caller, usedCentralGate = true, voiceUsed = "cloned")
             DebugLogger.logTtsSpeakCalled(true, cleanText)
             DebugLogger.logInfo("TTS Gate [$caller]: Speaking with Cloned Voice: \"$cleanText\"")
 
-            com.example.manager.OfflineVoiceCloneManager.speakWithClonedVoice(
+            return com.example.manager.OfflineVoiceCloneManager.speakWithClonedVoice(
                 cleanText,
                 onDone = onDone
             )
         } else {
             // Voice profile does NOT exist yet!
             // Remain completely silent.
-            DebugLogger.logTtsGateCheck(profileExists = false, caller = caller, action = "skip")
-            DebugLogger.logTtsCallPath(feature = caller, usedCentralGate = true, voiceUsed = "default")
             DebugLogger.logInfo("Voice-cloning setup pending (TTS suppressed for caller '$caller')")
 
             appContext?.let { ctx ->
@@ -311,6 +321,7 @@ object TtsManager {
 
             // Immediately invoke callback so caller flow is never stalled
             onDone?.let { mainHandler.post { it.invoke() } }
+            return false
         }
     }
 
@@ -350,18 +361,26 @@ object TtsManager {
         }
 
         try {
-            // Apply the user's authentic uploaded vocal pitch and cadence
-            ttsEngine.setPitch(pitchFactor)
-            ttsEngine.setSpeechRate(speechRate)
+            // BUG 4 FIX: Natural acoustic smoothing & cosmetic parameter tuning
+            // Clamp pitch to [0.92f, 1.15f] and speech rate to [0.95f, 1.10f] so output sounds natural and smooth, not robotic or metallic
+            val tunedPitch = pitchFactor.coerceIn(0.92f, 1.15f)
+            val tunedRate = speechRate.coerceIn(0.95f, 1.10f)
+            ttsEngine.setPitch(tunedPitch)
+            ttsEngine.setSpeechRate(tunedRate)
 
             val hasDevanagari = cleanText.any { it in '\u0900'..'\u097F' }
-            val targetLocale = if (hasDevanagari) Locale("hi", "IN") else Locale("en", "IN")
+            val lower = cleanText.lowercase()
+            val isHinglish = listOf(
+                "ji", "sir", "ho gaya", "kar diya", "khol diya", "khol", "karo", "chalao", "dekho",
+                "samajh", "raha", "hoon", "nahi", "theek", "hai", "batao", "sunao", "badha", "ghata",
+                "namaste", "shukriya", "dost", "dhoondo", "lagao", "bajao"
+            ).any { lower.contains(it) }
+
+            val targetLocale = if (hasDevanagari || isHinglish) Locale("hi", "IN") else Locale("en", "IN")
 
             val langResult = ttsEngine.setLanguage(targetLocale)
             if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                if (targetLocale.language == "hi") {
-                    ttsEngine.setLanguage(Locale.ENGLISH)
-                }
+                ttsEngine.setLanguage(Locale("hi", "IN"))
             }
 
             val selectedVoice = _selectedVoiceId.value
@@ -375,7 +394,10 @@ object TtsManager {
                     }
                 }
             } else {
-                getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
+                val best = getBestVoiceForLocale(ttsEngine, targetLocale)
+                    ?: getBestVoiceForLocale(ttsEngine, Locale("hi", "IN"))
+                    ?: getBestVoiceForLocale(ttsEngine, Locale("en", "IN"))
+                if (best != null) {
                     ttsEngine.voice = best
                 }
             }

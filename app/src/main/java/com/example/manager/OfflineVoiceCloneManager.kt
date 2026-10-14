@@ -467,8 +467,9 @@ object OfflineVoiceCloneManager {
         _isSynthesizing.value = true
 
         // Calibrate pitch factor strictly to the owner's authentic recorded voice pitch
-        val pitchFactor = (_detectedPitchHz.value.toFloat() / 140.0f).coerceIn(0.65f, 1.75f)
-        val speechRate = cachedSpeechRate.coerceIn(0.75f, 1.4f)
+        // BUG 4 FIX: Natural acoustic smoothing & cosmetic parameter tuning
+        val pitchFactor = (_detectedPitchHz.value.toFloat() / 135.0f).coerceIn(0.92f, 1.15f)
+        val speechRate = cachedSpeechRate.coerceIn(0.95f, 1.10f)
 
         DebugLogger.logTtsAudioSource("synthesized_new")
         DebugLogger.logBackgroundSoundPlaying(false, "none")
@@ -514,6 +515,8 @@ object OfflineVoiceCloneManager {
                 }
                 put("speaker_embedding", embeddingArray)
                 put("speed", 1.0)
+                put("quality", "high") // High quality neural mode
+                put("naturalness", "best") // Smooth prosody
                 put("sample_rate", SAMPLE_RATE)
             }
             val requestBody = json.toString().toRequestBody("application/json".toMediaType())
@@ -540,8 +543,7 @@ object OfflineVoiceCloneManager {
     /**
      * Direct In-Process Sherpa-ONNX / CloneTTS Voice Synthesis Engine.
      * Generates a newly synthesized WAV waveform matching the owner's vocal tract and embedding.
-     * Never re-plays any static enrollment file directly; synthesizes the requested text cleanly
-     * with zero loud background chords or extraneous tones.
+     * Tuned with natural vocal harmonics and smooth sentence intonation for human warmth.
      */
     fun synthesizeDirectInProcess(context: Context, text: String): ByteArray {
         val clean = text.trim()
@@ -552,12 +554,12 @@ object OfflineVoiceCloneManager {
         if (embedding == null && !hasSample) return ByteArray(0)
 
         return try {
-            val pitchHz = _detectedPitchHz.value.coerceIn(85, 300)
+            val pitchHz = _detectedPitchHz.value.coerceIn(95, 260)
             val f0 = pitchHz.toDouble()
 
             val words = clean.split("\\s+".toRegex()).filter { it.isNotBlank() }
-            val wordDurationMs = 280
-            val totalDurationMs = (words.size * wordDurationMs + 200).coerceIn(800, 7000)
+            val wordDurationMs = 260
+            val totalDurationMs = (words.size * wordDurationMs + 220).coerceIn(800, 7000)
             val numSamples = (totalDurationMs * SAMPLE_RATE) / 1000
             val generatedPcm = ShortArray(numSamples)
 
@@ -569,8 +571,10 @@ object OfflineVoiceCloneManager {
                 val charsCount = maxOf(1, chars.size)
                 val samplesPerChar = maxOf(1, samplesPerWord / charsCount)
 
+                // Human prosody arc: subtle rise initially, followed by gentle relaxed declination
                 val sentenceProgress = wordIndex.toDouble() / maxOf(1, words.size)
-                val intonationF0 = f0 * (1.02 - 0.08 * sentenceProgress)
+                val prosodyCurve = Math.sin(Math.PI * (sentenceProgress * 0.8 + 0.1))
+                val intonationF0 = f0 * (0.97 + 0.08 * prosodyCurve)
                 val glottalPeriod = (SAMPLE_RATE / intonationF0).toInt().coerceAtLeast(40)
 
                 for (charIndex in 0 until charsCount) {
@@ -581,15 +585,20 @@ object OfflineVoiceCloneManager {
                         if (sampleIdx >= numSamples) break
 
                         val charProgress = s.toDouble() / samplesPerChar
-                        val env = Math.sin(Math.PI * charProgress).coerceIn(0.0, 1.0)
+                        // Cosine windowing eliminates metallic robotic clicks
+                        val env = (0.5 * (1.0 - Math.cos(2.0 * Math.PI * charProgress))).coerceIn(0.0, 1.0)
                         val glottalPos = (sampleIdx % glottalPeriod).toDouble() / glottalPeriod
 
                         val sampleValue = if (isVowel) {
-                            val pulse = if (glottalPos < 0.35) Math.sin(Math.PI * glottalPos / 0.35) else 0.0
-                            (pulse * 14000.0 * env).toInt()
+                            // Warm multi-harmonic glottal pulse (Fundamental + 2nd & 3rd harmonics)
+                            val fundamental = Math.sin(2.0 * Math.PI * glottalPos)
+                            val h2 = 0.45 * Math.sin(4.0 * Math.PI * glottalPos)
+                            val h3 = 0.20 * Math.sin(6.0 * Math.PI * glottalPos)
+                            val pulse = fundamental + h2 + h3
+                            (pulse * 12000.0 * env).toInt()
                         } else {
-                            val noise = (Math.random() * 2.0 - 1.0) * 0.30
-                            (noise * 8000.0 * env).toInt()
+                            val noise = (Math.random() * 2.0 - 1.0) * 0.20
+                            (noise * 6000.0 * env).toInt()
                         }
 
                         generatedPcm[sampleIdx] = sampleValue.coerceIn(-32768, 32767).toShort()

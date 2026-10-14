@@ -120,7 +120,10 @@ object CommandClassifier {
         val matchedApp = AppOpenManager.fuzzyMatchApp(trimmed, installedApps)
         val matchedAppKeyword = if (matchedApp != null) matchedApp.name else null
 
-        val anyKeywordMentioned = matchedHardwareKeyword ?: matchedAppKeyword
+        val COMMON_APPS = listOf("youtube", "whatsapp", "instagram", "spotify", "chrome", "google", "maps", "camera", "gallery", "settings", "music", "zomato", "swiggy", "paytm", "gpay", "phonepe", "gmail", "telegram", "uber", "ola", "twitter", "facebook")
+        val fallbackAppMentioned = COMMON_APPS.firstOrNull { lower.contains(it) }
+
+        val anyKeywordMentioned = matchedHardwareKeyword ?: matchedAppKeyword ?: fallbackAppMentioned
 
         // 2. Identify conversational markers
         val hasStoryMarker = CONVERSATIONAL_STORY_MARKERS.any { lower.contains(it) }
@@ -134,13 +137,17 @@ object CommandClassifier {
 
         // 4. Multi-intent / Compound command check
         val hasInAppActionVerb = listOf("search", "play", "subscribe", "unsubscribe", "follow", "unfollow", "like", "lagao", "bajao", "dhoondo", "khojo").any { lower.contains(it) }
-        val isCompound = (lower.contains(" aur ") || lower.contains(" and ") || lower.contains(" phir ") || lower.contains(" fir ")) &&
-                (hasHardwareAction || hasAppLaunchVerb || hasInAppActionVerb)
+        val compoundConnectors = listOf(" aur ", " and ", " phir ", " fir ", " tatha ", " then ", " khol kar ", " kholkar ", " khol ke ", " kholke ", " open karke ", " open kar ", " par ", " pe ")
+        val hasCompoundConnector = compoundConnectors.any { lower.contains(it) }
+
+        val isCompound = (hasCompoundConnector && (hasHardwareAction || hasAppLaunchVerb || hasInAppActionVerb)) ||
+                (anyKeywordMentioned != null && hasInAppActionVerb)
+
         if (isCompound && !isConversationalContext) {
             return ClassificationResult(
                 isTask = true,
                 classifiedAs = "TASK",
-                confidence = "Multi-intent compound command with action verbs",
+                confidence = "Multi-intent compound in-app command with action verbs",
                 falsePositiveRisk = "none",
                 taskType = "COMPOUND_TASK"
             )
@@ -263,11 +270,12 @@ object CommandClassifier {
         val words = trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }
         val isDirectAppNameAlone = matchedApp != null && words.size <= 2 && !hasChitchatMarker && !hasStoryMarker
         val hasInAppActionVerbForApp = listOf("search", "play", "subscribe", "unsubscribe", "follow", "unfollow", "like", "lagao", "bajao", "dhoondo", "khojo").any { lower.contains(it) }
-        if (matchedApp != null && hasInAppActionVerbForApp) {
+        if ((matchedApp != null || fallbackAppMentioned != null) && hasInAppActionVerbForApp) {
+            val appLabel = matchedApp?.name ?: fallbackAppMentioned?.replaceFirstChar { it.uppercase() } ?: "App"
             return ClassificationResult(
                 isTask = true,
                 classifiedAs = "TASK",
-                confidence = "In-app action verb targeting '${matchedApp.name}'",
+                confidence = "In-app action verb targeting '$appLabel'",
                 falsePositiveRisk = "none",
                 taskType = "IN_APP_ACTION"
             )

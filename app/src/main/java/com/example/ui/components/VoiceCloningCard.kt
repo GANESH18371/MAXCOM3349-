@@ -621,8 +621,9 @@ fun VoiceCloningCard(
                         testStatusMessage = "Synthesizing speech in your cloned voice..."
                         isTestSuccess = null
                         val phrase = "नमस्ते! यह मेरी अपनी आवाज़ का ऑफ़लाइन क्लोन है। मैक्स अब इसी आवाज़ में आपसे बात करेगा।"
-                        val handled = OfflineVoiceCloneManager.speakWithClonedVoice(
+                        val handled = com.example.util.TtsManager.speakIfVoiceReady(
                             text = phrase,
+                            caller = "SettingsTest",
                             onDone = {
                                 testStatusMessage = "Speech playback completed in your cloned voice ✓"
                                 isTestSuccess = true
