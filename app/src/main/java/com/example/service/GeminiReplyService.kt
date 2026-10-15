@@ -277,43 +277,50 @@ object GeminiReplyService {
                 Context: $limitedContext
             """.trimIndent()
 
-            val jsonBody = JSONObject().apply {
-                val contentsArray = JSONArray().apply {
-                    val contentObj = JSONObject().apply {
+            var currentMaxTokens = 600
+            var enableThinking = true
+
+            // Helper to build generation payload with thinkingBudget: 0 and configurable maxOutputTokens
+            fun buildComprehensionPayload(tokens: Int, withThinking: Boolean): String {
+                val json = JSONObject().apply {
+                    val contentsArray = JSONArray().apply {
+                        val contentObj = JSONObject().apply {
+                            val partsArray = JSONArray().apply {
+                                put(JSONObject().put("text", userContent))
+                            }
+                            put("parts", partsArray)
+                        }
+                        put(contentObj)
+                    }
+                    put("contents", contentsArray)
+
+                    val systemInstructionObj = JSONObject().apply {
                         val partsArray = JSONArray().apply {
-                            put(JSONObject().put("text", userContent))
+                            put(JSONObject().put("text", systemPrompt))
                         }
                         put("parts", partsArray)
                     }
-                    put(contentObj)
-                }
-                put("contents", contentsArray)
+                    put("systemInstruction", systemInstructionObj)
 
-                val systemInstructionObj = JSONObject().apply {
-                    val partsArray = JSONArray().apply {
-                        put(JSONObject().put("text", systemPrompt))
+                    val genConfig = JSONObject().apply {
+                        put("temperature", 0.3)
+                        put("maxOutputTokens", tokens)
+                        put("responseMimeType", "application/json")
+                        if (withThinking) {
+                            val thinkingConfig = JSONObject().apply {
+                                put("thinkingBudget", 0)
+                            }
+                            put("thinkingConfig", thinkingConfig)
+                        }
                     }
-                    put("parts", partsArray)
+                    put("generationConfig", genConfig)
                 }
-                put("systemInstruction", systemInstructionObj)
-
-                val genConfig = JSONObject().apply {
-                    put("temperature", 0.3)
-                    put("maxOutputTokens", 180)
-                    put("responseMimeType", "application/json")
-                }
-                put("generationConfig", genConfig)
+                return json.toString()
             }
 
-            val payloadStr = jsonBody.toString()
+            var payloadStr = buildComprehensionPayload(currentMaxTokens, enableThinking)
             DebugLogger.logGeminiRequestSent(true, payloadStr)
             DebugLogger.logGeminiRequestPayload(payloadStr)
-
-            val requestBody = payloadStr.toRequestBody("application/json".toMediaType())
-            val request = Request.Builder()
-                .url("$BASE_URL?key=$apiKey")
-                .post(requestBody)
-                .build()
 
             var response: okhttp3.Response? = null
             var responseBody: String? = null
@@ -324,6 +331,7 @@ object GeminiReplyService {
             while (attempts < maxRetries) {
                 attempts++
                 try {
+                    val requestBody = payloadStr.toRequestBody("application/json".toMediaType())
                     val request = Request.Builder()
                         .url("$BASE_URL?key=$apiKey")
                         .post(requestBody)
@@ -334,13 +342,22 @@ object GeminiReplyService {
                     lastHttpCode = response.code
                     responseBody = response.body?.string()
 
+                    // If 400 because thinkingConfig is rejected by older or non-supporting model endpoint, retry without thinking
+                    if (response.code == 400 && enableThinking && responseBody?.contains("thinking", ignoreCase = true) == true) {
+                        DebugLogger.logInfo("Gemini endpoint 400 on thinkingConfig, retrying without thinkingBudget...")
+                        enableThinking = false
+                        payloadStr = buildComprehensionPayload(currentMaxTokens, false)
+                        continue
+                    }
+
                     // Automatic fallback if primary model returns 404 (endpoint not available in this project/region)
                     if (response.code == 404) {
                         response.close()
                         val fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/$FALLBACK_MODEL_NAME:generateContent?key=$apiKey"
+                        val fallbackPayload = buildComprehensionPayload(currentMaxTokens, false)
                         val fallbackRequest = Request.Builder()
                             .url(fallbackUrl)
-                            .post(payloadStr.toRequestBody("application/json".toMediaType()))
+                            .post(fallbackPayload.toRequestBody("application/json".toMediaType()))
                             .build()
                         response = okHttpClient.newCall(fallbackRequest).execute()
                         lastHttpCode = response.code
@@ -370,6 +387,35 @@ object GeminiReplyService {
                 }
             }
 
+            // CHECK TRUNCATION (MAX_TOKENS) & AUTOMATICALLY RETRY WITH LARGER TOKEN LIMIT (1200 TOKENS)
+            if (response != null && response.isSuccessful && !responseBody.isNullOrBlank()) {
+                val testJson = try { JSONObject(responseBody) } catch (_: Exception) { null }
+                val candidateObj = testJson?.optJSONArray("candidates")?.optJSONObject(0)
+                val finishReason = candidateObj?.optString("finishReason", "") ?: ""
+                val rawText = candidateObj?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "")?.trim() ?: ""
+                val isTruncated = finishReason.equals("MAX_TOKENS", ignoreCase = true) ||
+                        (rawText.isNotBlank() && parseComprehensionJson(rawText) == null && currentMaxTokens < 1000)
+
+                if (isTruncated && currentMaxTokens < 1000) {
+                    DebugLogger.logInfo("Gemini response truncated (finishReason=$finishReason, maxOutputTokens=$currentMaxTokens). Retrying with expanded tokens (maxOutputTokens=1200)...")
+                    currentMaxTokens = 1200
+                    payloadStr = buildComprehensionPayload(currentMaxTokens, enableThinking)
+                    try {
+                        val retryReq = Request.Builder()
+                            .url("$BASE_URL?key=$apiKey")
+                            .post(payloadStr.toRequestBody("application/json".toMediaType()))
+                            .build()
+                        response?.close()
+                        response = okHttpClient.newCall(retryReq).execute()
+                        lastHttpCode = response.code
+                        responseBody = response.body?.string()
+                        DebugLogger.logInfo("Gemini token-expansion retry HTTP $lastHttpCode")
+                    } catch (re: Exception) {
+                        DebugLogger.logInfo("Retry with expanded tokens failed: ${re.message}")
+                    }
+                }
+            }
+
             val resp = response
             val callSuccess = resp?.isSuccessful == true
             val code = resp?.code ?: lastHttpCode
@@ -395,7 +441,8 @@ object GeminiReplyService {
                             DebugLogger.logFallbackTriggered(false, "none")
                             return@withContext parsed.copy(isRealGeminiResponse = true)
                         } else {
-                            DebugLogger.logGeminiCallResult(false, "JSON parsing failed for text: $rawText")
+                            val errDetails = "JSON parsing failed for text: $rawText"
+                            DebugLogger.logGeminiCallResult(false, errDetails)
                             DebugLogger.logGeminiResponseParsed("Failed to parse JSON: $rawText")
                             DebugLogger.logFallbackTriggered(true, "JSON parsing failed for candidate text: $rawText")
                         }
@@ -465,11 +512,18 @@ object GeminiReplyService {
 
     private fun parseComprehensionJson(rawText: String): GeminiComprehensionResult? {
         return try {
-            val cleaned = rawText
+            var cleaned = rawText
                 .removePrefix("```json")
                 .removePrefix("```")
                 .removeSuffix("```")
                 .trim()
+            if (!cleaned.endsWith("}") && cleaned.contains("{")) {
+                cleaned = if (cleaned.contains("\"actions\":") && !cleaned.contains("]")) {
+                    "$cleaned\"]}"
+                } else {
+                    "$cleaned}"
+                }
+            }
             val obj = JSONObject(cleaned)
             val intent = obj.optString("understood_intent", "Understood command")
             val actionsList = mutableListOf<ComprehensionAction>()
@@ -649,7 +703,16 @@ object GeminiReplyService {
                 }
 
                 if (mentionedApp != null) {
-                    val appName = mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                    val appName = when (mentionedApp.lowercase()) {
+                        "youtube" -> "YouTube"
+                        "whatsapp" -> "WhatsApp"
+                        "instagram" -> "Instagram"
+                        "gpay" -> "GPay"
+                        "phonepe" -> "PhonePe"
+                        "spotify" -> "Spotify"
+                        "chrome" -> "Chrome"
+                        else -> mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                    }
                     val targetAction = act2 ?: act1 ?: ComprehensionAction("in_app_action", userQuery)
                     return GeminiComprehensionResult(
                         understoodIntent = "App open followed by in-app action",
@@ -659,7 +722,16 @@ object GeminiReplyService {
                 }
             }
         } else if (mentionedApp != null && (hasInAppAction || lower.contains("search") || lower.contains("play") || lower.contains("chalao") || lower.contains("subscribe") || lower.contains("follow") || lower.contains("lagao"))) {
-            val appName = mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+            val appName = when (mentionedApp.lowercase()) {
+                "youtube" -> "YouTube"
+                "whatsapp" -> "WhatsApp"
+                "instagram" -> "Instagram"
+                "gpay" -> "GPay"
+                "phonepe" -> "PhonePe"
+                "spotify" -> "Spotify"
+                "chrome" -> "Chrome"
+                else -> mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+            }
             return GeminiComprehensionResult(
                 understoodIntent = "App open followed by in-app action",
                 actions = listOf(ComprehensionAction("open_app", appName), ComprehensionAction("in_app_action", userQuery)),

@@ -806,33 +806,42 @@ class MaxAccessibilityService : AccessibilityService() {
                 stepsExecuted++
 
                 if (isSearchAction) {
-                    val query = extractQueryFromAction(actionDescription)
-                    if (query.isNotBlank()) {
-                        // Step 2: Find search button or edit text
-                        var searchInput = findEditTextNode(root)
-                        if (searchInput == null) {
-                            val searchBtn = findSearchOrComposeButton(root)
-                                ?: findNodeWithTextOrDesc(root, "Search")
-                                ?: findNodeWithTextOrDesc(root, "खोजें")
-                                ?: findNodeWithIdContaining(root, "search")
+                    val rawQuery = extractQueryFromAction(actionDescription)
+                    val query = if (rawQuery.isNotBlank()) rawQuery else {
+                        if (lowerAction.contains("gana") || lowerAction.contains("gaana") || lowerAction.contains("song")) "trending songs" else ""
+                    }
+                    // Step 2: Find search button or edit text
+                    var searchInput = findEditTextNode(root)
+                    if (searchInput == null) {
+                        val searchBtn = findSearchOrComposeButton(root)
+                            ?: findNodeWithTextOrDesc(root, "Search")
+                            ?: findNodeWithTextOrDesc(root, "खोजें")
+                            ?: findNodeWithIdContaining(root, "search")
 
-                            if (searchBtn != null && clickNodeSafely(searchBtn)) {
-                                DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", true, "none")
-                                stepsExecuted++
-                                delay(500L)
-                                root = rootInActiveWindow
-                                searchInput = findEditTextNode(root)
-                            } else {
-                                DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", false, "Search button not found")
-                            }
-                        } else {
+                        if (searchBtn != null && clickNodeSafely(searchBtn)) {
                             DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", true, "none")
                             stepsExecuted++
+                            delay(500L)
+                            root = rootInActiveWindow
+                            searchInput = findEditTextNode(root)
+                        } else {
+                            DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", false, "Search button not found")
                         }
+                    } else {
+                        DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", true, "none")
+                        stepsExecuted++
+                    }
 
-                        // Step 3: Type query into search field
-                        if (searchInput != null) {
-                            val typed = typeTextIntoNode(searchInput, query)
+                    // Step 3: Type query into search field
+                    if (searchInput != null) {
+                        if (query.isBlank()) {
+                            DebugLogger.logMultiStepActionStep(stepsIdentified, "tap_type", true, "none")
+                            stepsExecuted++
+                            DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
+                            onFinished(true, "Search bar opened")
+                            return@launch
+                        }
+                        val typed = typeTextIntoNode(searchInput, query)
                             if (typed) {
                                 DebugLogger.logMultiStepActionStep(stepsIdentified, "tap_type", true, "none")
                                 stepsExecuted++
@@ -879,7 +888,6 @@ class MaxAccessibilityService : AccessibilityService() {
                             }
                         }
                     }
-                }
 
                 // If not search or generic element action (subscribe, follow, etc.)
                 val visibleElements = collectClickableElements(root)

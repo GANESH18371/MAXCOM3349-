@@ -931,7 +931,14 @@ class VoiceCommandManager(private val context: Context) {
                     it.contains("dhoondo") || it.contains("khojo")
                 }
 
-        val resolvedApp = app1 ?: apps.find { lower.contains(it.name.lowercase()) }
+        val resolvedApp = app1
+            ?: apps.find { lower.contains(it.name.lowercase()) }
+            ?: apps.find { it.name.contains("youtube", ignoreCase = true) }
+            ?: if (lower.contains("youtube")) InstalledApp("YouTube", "com.google.android.youtube")
+               else if (lower.contains("spotify")) InstalledApp("Spotify", "com.spotify.music")
+               else if (lower.contains("instagram")) InstalledApp("Instagram", "com.instagram.android")
+               else if (lower.contains("whatsapp")) InstalledApp("WhatsApp", "com.whatsapp")
+               else null
 
         if (resolvedApp != null && isInAppAction2) {
             val launched = AppOpenManager.launchApp(context, resolvedApp)
