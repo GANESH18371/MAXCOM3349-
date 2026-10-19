@@ -48,8 +48,8 @@ object TtsManager {
         gender = "Male",
         subtitle = "Clear, Warm & Confident • Friendly & Pleasant",
         sampleText = "नमस्ते! मैं मैक्स हूँ। आपकी हर बात सुनने और सहायता करने के लिए हमेशा तैयार हूँ।",
-        preferredKeywords = listOf("-hid-", "male", "-end-", "-enc-", "hi-in-x-hid", "en-in-x-end", "-cfa-"),
-        pitchMultiplier = 0.96f
+        preferredKeywords = listOf("-hib-", "-hic-", "-hif-", "-enb-", "-enc-", "male", "hi-in-x-hic", "hi-in-x-hib", "en-in-x-enc"),
+        pitchMultiplier = 0.88f
     )
 
     val FEMALE = PresetVoice(
@@ -57,9 +57,9 @@ object TtsManager {
         name = "Female",
         gender = "Female",
         subtitle = "Articulate, Warm & Expressive • Friendly & Engaging",
-        sampleText = "नमस्ते! मैं मैक्स हूँ। कहिए, आज आपके लिए क्या कर सकती हूँ?",
-        preferredKeywords = listOf("-hie-", "-hia-", "female", "-ene-", "-enf-", "hi-in-x-hie", "hi-in-x-hia", "en-in-x-ene"),
-        pitchMultiplier = 1.06f
+        sampleText = "नमस्ते! मैं आपकी दोस्त और असिस्टेंट हूँ। कहिए, आज आपके लिए क्या करूँ?",
+        preferredKeywords = listOf("-hie-", "-hid-", "-hia-", "-ene-", "-end-", "-ena-", "female", "hi-in-x-hie", "hi-in-x-hid", "hi-in-x-hia", "en-in-x-ene"),
+        pitchMultiplier = 1.34f
     )
 
     // Backward-compatible aliases for legacy references
@@ -218,60 +218,105 @@ object TtsManager {
     private fun applyAudioSettings() {
         try {
             val preset = _selectedPreset.value
-            val effectivePitch = (_pitch.value * preset.pitchMultiplier).coerceIn(0.6f, 1.8f)
-            tts?.setPitch(effectivePitch)
-            tts?.setSpeechRate(_speechRate.value.coerceIn(0.7f, 1.6f))
             resolveSystemVoiceForPreset(preset)?.let {
                 tts?.voice = it
             }
+            val effectivePitch = (_pitch.value * preset.pitchMultiplier).coerceIn(0.6f, 1.8f)
+            tts?.setPitch(effectivePitch)
+            tts?.setSpeechRate(_speechRate.value.coerceIn(0.7f, 1.6f))
         } catch (e: Exception) {
             Log.w(TAG, "Error applying audio settings", e)
         }
     }
 
-    fun resolveSystemVoiceForPreset(preset: PresetVoice): Voice? {
+    fun isVoiceFemale(v: Voice): Boolean {
+        val n = v.name.lowercase(Locale.ROOT)
+        val features = v.features?.map { it.lowercase(Locale.ROOT) } ?: emptyList()
+
+        if (n.contains("female") || features.any { it.contains("female") } || n.contains("#female")) {
+            return true
+        }
+        if (n.contains("-hia-") || n.contains("-hid-") || n.contains("-hie-") ||
+            n.contains("-ena-") || n.contains("-end-") || n.contains("-ene-") ||
+            n.contains("hie-") || n.contains("hia-") || n.contains("hid-") ||
+            n.contains("woman") || n.contains("girl")) {
+            return true
+        }
+        return false
+    }
+
+    fun isVoiceMale(v: Voice): Boolean {
+        if (isVoiceFemale(v)) return false
+        val n = v.name.lowercase(Locale.ROOT)
+        val features = v.features?.map { it.lowercase(Locale.ROOT) } ?: emptyList()
+
+        if (n.contains("male") || features.any { it.contains("male") } || n.contains("#male")) {
+            return true
+        }
+        if (n.contains("-hib-") || n.contains("-hic-") || n.contains("-hif-") ||
+            n.contains("-enb-") || n.contains("-enc-") || n.contains("-enf-") ||
+            n.contains("hib-") || n.contains("hic-") || n.contains("hif-") ||
+            n.contains("man") || n.contains("boy")) {
+            return true
+        }
+        return false
+    }
+
+    fun resolveSystemVoiceForPreset(preset: PresetVoice, preferredLocale: Locale? = null): Voice? {
         val ttsEngine = tts ?: return null
         val available = ttsEngine.voices ?: return null
         if (available.isEmpty()) return null
 
         val isMale = preset.gender.equals("Male", ignoreCase = true)
+        val prefLang = preferredLocale?.language?.lowercase(Locale.ROOT) ?: "hi"
 
-        val langFiltered = available.filter { v ->
-            val l = v.locale.language.lowercase(Locale.ROOT)
-            val c = v.locale.country.lowercase(Locale.ROOT)
-            l == "hi" || (l == "en" && (c == "in" || c == "gb" || c == "us"))
-        }.ifEmpty { available.toList() }
+        // Step 1: Strictly isolate candidates of matching gender first
+        val matchingGender = available.filter { v ->
+            if (isMale) isVoiceMale(v) else isVoiceFemale(v)
+        }
 
-        return langFiltered.maxByOrNull { v ->
+        // If gender-matched voices exist, NEVER select an opposite gender voice
+        val candidatePool = if (matchingGender.isNotEmpty()) matchingGender else available.toList()
+
+        return candidatePool.maxByOrNull { v ->
             var score = 0
             val n = v.name.lowercase(Locale.ROOT)
+            val lang = v.locale.language.lowercase(Locale.ROOT)
+            val country = v.locale.country.lowercase(Locale.ROOT)
 
-            val voiceIsMale = n.contains("male") || n.contains("-hid-") || n.contains("-hic-") || n.contains("-cfc-") || n.contains("-end-") || n.contains("-enc-") || n.contains("-cfa-") || n.contains("d-local") || n.contains("c-local") || n.contains("-m-")
-            val voiceIsFemale = n.contains("female") || n.contains("-hie-") || n.contains("-hia-") || n.contains("-hib-") || n.contains("-ena-") || n.contains("-ene-") || n.contains("-enf-")
+            val isFem = isVoiceFemale(v)
+            val isM = isVoiceMale(v)
 
             if (isMale) {
-                if (voiceIsMale) score += 2000
-                if (voiceIsFemale) score -= 2000
+                if (isM) score += 3000
+                if (isFem) score -= 5000
             } else {
-                if (voiceIsFemale) score += 2000
-                if (voiceIsMale) score -= 2000
+                if (isFem) score += 3000
+                if (isM) score -= 5000
             }
 
+            // Language match
+            if (lang == prefLang) {
+                score += 1500
+            } else if (lang == "hi" || (lang == "en" && (country == "in" || country == "gb" || country == "us"))) {
+                score += 500
+            }
+
+            if (country == "in") score += 300
+
+            // Keyword boost
             for (kw in preset.preferredKeywords) {
                 if (n.contains(kw.lowercase(Locale.ROOT))) {
-                    score += 500
+                    score += 600
                 }
             }
 
             if (v.quality == Voice.QUALITY_VERY_HIGH) score += 400
             else if (v.quality == Voice.QUALITY_HIGH) score += 200
-            if (n.contains("neural")) score += 300
-            if (n.contains("wavenet")) score += 300
-            if (n.contains("network")) score += 100
+            if (n.contains("neural")) score += 400
+            if (n.contains("wavenet")) score += 400
+            if (n.contains("network")) score += 150
             if (!v.isNetworkConnectionRequired) score += 50
-
-            if (v.locale.language == "hi") score += 150
-            if (v.locale.country.equals("in", ignoreCase = true)) score += 100
 
             score
         }
@@ -307,10 +352,6 @@ object TtsManager {
         }
 
         try {
-            val effectivePitch = (_pitch.value * currentPreset.pitchMultiplier).coerceIn(0.6f, 1.8f)
-            ttsEngine.setPitch(effectivePitch)
-            ttsEngine.setSpeechRate(_speechRate.value.coerceIn(0.7f, 1.6f))
-
             val hasDevanagari = cleanText.any { it in '\u0900'..'\u097F' }
             val lower = cleanText.lowercase()
             val isHinglish = listOf(
@@ -330,9 +371,13 @@ object TtsManager {
                 ttsEngine.setLanguage(Locale.ENGLISH)
             }
 
-            resolveSystemVoiceForPreset(currentPreset)?.let {
+            resolveSystemVoiceForPreset(currentPreset, targetLocale)?.let {
                 ttsEngine.voice = it
             }
+
+            val effectivePitch = (_pitch.value * currentPreset.pitchMultiplier).coerceIn(0.6f, 1.8f)
+            ttsEngine.setPitch(effectivePitch)
+            ttsEngine.setSpeechRate(_speechRate.value.coerceIn(0.7f, 1.6f))
 
             val utteranceId = "tts_${currentPreset.id}_${System.currentTimeMillis()}_${cleanText.hashCode()}"
             if (onDone != null) {
@@ -376,14 +421,16 @@ object TtsManager {
     fun speakSampleForPreset(preset: PresetVoice, onDone: (() -> Unit)? = null) {
         val ttsEngine = tts ?: return
         try {
+            val sampleLocale = Locale("hi", "IN")
+            ttsEngine.setLanguage(sampleLocale)
+
+            resolveSystemVoiceForPreset(preset, sampleLocale)?.let {
+                ttsEngine.voice = it
+            }
+
             val effectivePitch = (_pitch.value * preset.pitchMultiplier).coerceIn(0.6f, 1.8f)
             ttsEngine.setPitch(effectivePitch)
             ttsEngine.setSpeechRate(_speechRate.value.coerceIn(0.7f, 1.6f))
-            ttsEngine.setLanguage(Locale("hi", "IN"))
-
-            resolveSystemVoiceForPreset(preset)?.let {
-                ttsEngine.voice = it
-            }
 
             DebugLogger.logTtsCall(usingVoice = preset.name, text = preset.sampleText)
             DebugLogger.logTtsCallSource(source = "SettingsSample", voiceUsed = preset.name)
