@@ -491,17 +491,7 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
-    fun logOfflineCloneStatus(enabled: Boolean, hasSample: Boolean, engine: String) {
-        val logLine = "OFFLINE_CLONE_STATUS: enabled=$enabled, sample=$hasSample, engine=$engine"
-        safeLog(Log.INFO, TAG, logLine)
-        addEntry(logLine, LogType.INFO)
-    }
 
-    fun logOfflineCloneSynthesis(success: Boolean, details: String = "") {
-        val logLine = "OFFLINE_CLONE_SYNTHESIS: success=$success${if (details.isNotBlank()) " ($details)" else ""}"
-        safeLog(if (success) Log.INFO else Log.WARN, TAG, logLine)
-        addEntry(logLine, LogType.INFO)
-    }
 
     /**
      * Exact required format: "WAKE_PHRASE_DETECTED: <phrase>"
@@ -576,7 +566,7 @@ object DebugLogger {
 
     /**
      * Exact required format:
-     * "TTS_CALL_PATH: feature=<kaunsa feature bol raha hai>, used_central_gate=<true/false>, voice_used=<cloned/default>"
+     * "TTS_CALL_PATH: feature=<kaunsa feature bol raha hai>, used_central_gate=<true/false>, voice_used=<preset/selected>"
      */
     fun logTtsCallPath(feature: String, usedCentralGate: Boolean, voiceUsed: String) {
         val logLine = "TTS_CALL_PATH: feature=$feature, used_central_gate=$usedCentralGate, voice_used=$voiceUsed"
@@ -586,32 +576,11 @@ object DebugLogger {
 
     /**
      * Exact required format:
-     * "TTS_SYNTHESIS_METHOD: <CLONETTS_REAL_SERVER / PITCH_SHIFT_FAKE>"
+     * "TTS_SYNTHESIS_METHOD: <method>"
      */
     fun logTtsSynthesisMethod(method: String) {
         val logLine = "TTS_SYNTHESIS_METHOD: $method"
         safeLog(Log.INFO, TAG, logLine)
-        addEntry(logLine, LogType.INFO)
-    }
-
-    /**
-     * Exact required format:
-     * "CLONETTS_SERVER_STATUS: <running/not-started/failed>"
-     */
-    fun logCloneTtsServerStatus(status: String) {
-        val logLine = "CLONETTS_SERVER_STATUS: $status"
-        safeLog(Log.INFO, TAG, logLine)
-        addEntry(logLine, LogType.INFO)
-    }
-
-    /**
-     * Exact required format:
-     * "CLONETTS_SYNTHESIS_ATTEMPT: success/fail, error=<exact reason>"
-     */
-    fun logCloneTtsSynthesisAttempt(success: Boolean, error: String = "none") {
-        val status = if (success) "success" else "fail"
-        val logLine = "CLONETTS_SYNTHESIS_ATTEMPT: $status, error=$error"
-        safeLog(if (success) Log.INFO else Log.WARN, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
 
@@ -980,10 +949,28 @@ object DebugLogger {
     }
 
     /**
-     * Exact required format: "TTS_CALL_SOURCE: SettingsTest/ConversationResponse, voice_used=<cloned/default>"
+     * Exact required format: "TTS_CALL_SOURCE: SettingsTest/ConversationResponse, voice_used=<voice_name>"
      */
     fun logTtsCallSource(source: String, voiceUsed: String) {
         val logLine = "TTS_CALL_SOURCE: $source, voice_used=$voiceUsed"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "VOICE_SELECTED: name=<>, voice_id=<>"
+     */
+    fun logVoiceSelected(name: String, voiceId: String) {
+        val logLine = "VOICE_SELECTED: name=$name, voice_id=$voiceId"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "TTS_CALL: using_voice=<naam>, text=<>"
+     */
+    fun logTtsCall(usingVoice: String, text: String) {
+        val logLine = "TTS_CALL: using_voice=$usingVoice, text=$text"
         safeLog(Log.INFO, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }

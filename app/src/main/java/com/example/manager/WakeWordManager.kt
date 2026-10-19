@@ -381,11 +381,7 @@ object WakeWordManager {
         val length = 16000 // 1 second of 16kHz audio
         val pcm = ShortArray(length)
 
-        val ownerPitch = if (context != null) {
-            OfflineVoiceCloneManager.detectedPitchHz.value.toDouble().coerceIn(90.0, 240.0)
-        } else {
-            135.0
-        }
+        val ownerPitch = 135.0
 
         val baseFreq = if (isOwner) ownerPitch else 320.0
         val modOffset = if (isOwner) 0.0 else 60.0

@@ -82,7 +82,6 @@ import com.example.ui.components.GeminiApiKeyCard
 import com.example.ui.components.HardwareToggleGrid
 import com.example.ui.components.PermanentMemoryCard
 import com.example.ui.components.RemindersCard
-import com.example.ui.components.VoiceCloningCard
 import com.example.ui.components.VoiceSettingsCard
 import com.example.ui.components.WakeWordSettingsCard
 import com.example.ui.components.WeatherCard
@@ -440,10 +439,6 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Voice Cloning Card (Apni Khud Ki Awaaz)
-                    VoiceCloningCard()
-
-                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Wake-Word & Owner Biometrics Card
                     WakeWordSettingsCard()

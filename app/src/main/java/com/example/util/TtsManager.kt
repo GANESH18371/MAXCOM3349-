@@ -15,6 +15,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
+data class PresetVoice(
+    val id: String,
+    val name: String,
+    val gender: String, // "Male" or "Female"
+    val subtitle: String,
+    val sampleText: String,
+    val preferredKeywords: List<String>,
+    val pitchMultiplier: Float = 1.0f
+)
+
 data class VoiceProfileInfo(
     val id: String,
     val displayName: String,
@@ -27,15 +37,71 @@ object TtsManager {
     private const val PREFS_NAME = "max_tts_unified_prefs"
     private const val KEY_PITCH = "tts_pitch"
     private const val KEY_RATE = "tts_rate"
-    private const val KEY_VOICE_ID = "tts_voice_id"
+    private const val KEY_SELECTED_PRESET_ID = "selected_preset_voice_id"
+    private const val KEY_SELECTED_VOICE_NAME = "selected_preset_voice_name"
     private const val KEY_LANG_MODE = "tts_lang_mode"
+
+    // 4 NATURAL PRESET VOICES (2 Male, 2 Female)
+    val ARJUN = PresetVoice(
+        id = "arjun",
+        name = "Arjun",
+        gender = "Male",
+        subtitle = "Male • Confident & Deep (Hindi/English)",
+        sampleText = "नमस्ते! मैं मैक्स हूँ। आपकी हर कमांड के लिए मैं हमेशा तैयार हूँ।",
+        preferredKeywords = listOf("-hid-", "male", "-end-", "-enc-", "hi-in-x-hid", "en-in-x-end"),
+        pitchMultiplier = 0.92f
+    )
+
+    val ROHAN = PresetVoice(
+        id = "rohan",
+        name = "Rohan",
+        gender = "Male",
+        subtitle = "Male • Energetic & Casual (Hindi/English)",
+        sampleText = "हे दोस्त! मैं मैक्स हूँ, बताइए आज क्या काम करना है?",
+        preferredKeywords = listOf("-hic-", "-cfa-", "male", "-enc-", "hi-in-x-hic", "en-in-x-enc"),
+        pitchMultiplier = 1.05f
+    )
+
+    val ANANYA = PresetVoice(
+        id = "ananya",
+        name = "Ananya",
+        gender = "Female",
+        subtitle = "Female • Sweet & Natural (Hindi/English)",
+        sampleText = "नमस्ते! मैं मैक्स हूँ। मैं आपके सारे काम चुटकी में कर सकती हूँ।",
+        preferredKeywords = listOf("-hie-", "-hia-", "female", "-ene-", "hi-in-x-hie", "hi-in-x-hia", "en-in-x-ene"),
+        pitchMultiplier = 1.12f
+    )
+
+    val PRIYA = PresetVoice(
+        id = "priya",
+        name = "Priya",
+        gender = "Female",
+        subtitle = "Female • Calm & Professional (Hindi/English)",
+        sampleText = "नमस्ते, मैं मैक्स हूँ। आपका पर्सनल एआई असिस्टेंट।",
+        preferredKeywords = listOf("-hib-", "female", "-enf-", "-ena-", "hi-in-x-hib", "en-in-x-enf", "en-in-x-ena"),
+        pitchMultiplier = 1.00f
+    )
+
+    val PRESET_VOICES = listOf(ARJUN, ROHAN, ANANYA, PRIYA)
 
     private var tts: TextToSpeech? = null
     private var isInitialized = false
     private var pendingSpeech: String? = null
     private var pendingCallback: (() -> Unit)? = null
     private val callbacks = ConcurrentHashMap<String, () -> Unit>()
-    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun postOnMain(action: () -> Unit) {
+        try {
+            val looper = Looper.getMainLooper()
+            if (looper != null) {
+                Handler(looper).post(action)
+                return
+            }
+        } catch (_: Throwable) {
+            // In unit test environments where Looper.getMainLooper() is unmocked
+        }
+        action.invoke()
+    }
 
     private var appContext: Context? = null
 
@@ -43,11 +109,11 @@ object TtsManager {
     private val _pitch = MutableStateFlow(1.0f)
     val pitch: StateFlow<Float> = _pitch.asStateFlow()
 
-    private val _speechRate = MutableStateFlow(1.02f) // Slightly brisk, natural conversational cadence
+    private val _speechRate = MutableStateFlow(1.02f)
     val speechRate: StateFlow<Float> = _speechRate.asStateFlow()
 
-    private val _selectedVoiceId = MutableStateFlow("auto_natural")
-    val selectedVoiceId: StateFlow<String> = _selectedVoiceId.asStateFlow()
+    private val _selectedPreset = MutableStateFlow(ARJUN)
+    val selectedPreset: StateFlow<PresetVoice> = _selectedPreset.asStateFlow()
 
     private val _languageMode = MutableStateFlow("auto") // "auto", "hi_IN", "en_IN"
     val languageMode: StateFlow<String> = _languageMode.asStateFlow()
@@ -55,23 +121,18 @@ object TtsManager {
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
-    private val _availableVoices = MutableStateFlow<List<VoiceProfileInfo>>(emptyList())
-    val availableVoices: StateFlow<List<VoiceProfileInfo>> = _availableVoices.asStateFlow()
-
     fun init(context: Context) {
         if (tts != null) return
         appContext = context.applicationContext
 
-        // Load saved preferences
         loadPreferences(context)
 
         try {
             tts = TextToSpeech(context.applicationContext) { status ->
                 if (status == TextToSpeech.SUCCESS) {
                     isInitialized = true
-                    Log.i(TAG, "Central Unified TTS Engine initialized successfully")
+                    Log.i(TAG, "Central Unified TTS Engine initialized with preset: ${_selectedPreset.value.name}")
 
-                    // Configure natural speech audio attributes
                     try {
                         val audioAttributes = AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
@@ -82,17 +143,13 @@ object TtsManager {
                         Log.w(TAG, "AudioAttributes setup: ${e.message}")
                     }
 
-                    // Configure default natural language fallback
+                    // Configure default natural language
                     val hiResult = tts?.setLanguage(Locale("hi", "IN"))
                     if (hiResult == TextToSpeech.LANG_MISSING_DATA || hiResult == TextToSpeech.LANG_NOT_SUPPORTED) {
                         tts?.setLanguage(Locale.ENGLISH)
                     }
 
-                    // Apply configured pitch and speech rate
                     applyAudioSettings()
-
-                    // Discover and index high-quality available voices
-                    refreshAvailableVoices()
 
                     tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) {
@@ -103,7 +160,7 @@ object TtsManager {
                             _isSpeaking.value = false
                             utteranceId?.let { id ->
                                 callbacks.remove(id)?.let { cb ->
-                                    mainHandler.post { cb.invoke() }
+                                    postOnMain { cb.invoke() }
                                 }
                             }
                         }
@@ -112,18 +169,17 @@ object TtsManager {
                             _isSpeaking.value = false
                             utteranceId?.let { id ->
                                 callbacks.remove(id)?.let { cb ->
-                                    mainHandler.post { cb.invoke() }
+                                    postOnMain { cb.invoke() }
                                 }
                             }
                         }
                     })
 
-                    // Speak any queued pending announcement
                     pendingSpeech?.let { text ->
                         val cb = pendingCallback
                         pendingSpeech = null
                         pendingCallback = null
-                        speak(text, cb)
+                        speakWithSelectedVoice(text, onDone = cb)
                     }
                 } else {
                     Log.w(TAG, "TTS Initialization failed with status: $status")
@@ -138,7 +194,8 @@ object TtsManager {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _pitch.value = prefs.getFloat(KEY_PITCH, 1.0f).coerceIn(0.7f, 1.5f)
         _speechRate.value = prefs.getFloat(KEY_RATE, 1.02f).coerceIn(0.7f, 1.5f)
-        _selectedVoiceId.value = prefs.getString(KEY_VOICE_ID, "auto_natural") ?: "auto_natural"
+        val savedPresetId = prefs.getString(KEY_SELECTED_PRESET_ID, ARJUN.id) ?: ARJUN.id
+        _selectedPreset.value = PRESET_VOICES.find { it.id == savedPresetId } ?: ARJUN
         _languageMode.value = prefs.getString(KEY_LANG_MODE, "auto") ?: "auto"
     }
 
@@ -147,104 +204,259 @@ object TtsManager {
         prefs.edit()
             .putFloat(KEY_PITCH, _pitch.value)
             .putFloat(KEY_RATE, _speechRate.value)
-            .putString(KEY_VOICE_ID, _selectedVoiceId.value)
+            .putString(KEY_SELECTED_PRESET_ID, _selectedPreset.value.id)
+            .putString(KEY_SELECTED_VOICE_NAME, _selectedPreset.value.name)
             .putString(KEY_LANG_MODE, _languageMode.value)
             .apply()
     }
 
+    fun selectPresetVoice(context: Context, presetId: String) {
+        val preset = PRESET_VOICES.find { it.id == presetId } ?: ARJUN
+        _selectedPreset.value = preset
+        savePreferences(context)
+
+        val resolvedVoice = resolveSystemVoiceForPreset(preset)
+        val voiceIdToLog = resolvedVoice?.name ?: preset.id
+
+        // Exact Required Debug Log: "VOICE_SELECTED: name=<>, voice_id=<>"
+        DebugLogger.logVoiceSelected(name = preset.name, voiceId = voiceIdToLog)
+        DebugLogger.logInfo("Preset voice selected: ${preset.name} (${preset.gender}), voiceId=$voiceIdToLog")
+
+        applyAudioSettings()
+    }
+
     private fun applyAudioSettings() {
         try {
-            tts?.setPitch(_pitch.value)
-            tts?.setSpeechRate(_speechRate.value)
+            val preset = _selectedPreset.value
+            val effectivePitch = (_pitch.value * preset.pitchMultiplier).coerceIn(0.6f, 1.8f)
+            tts?.setPitch(effectivePitch)
+            tts?.setSpeechRate(_speechRate.value.coerceIn(0.7f, 1.6f))
+            resolveSystemVoiceForPreset(preset)?.let {
+                tts?.voice = it
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Error applying audio settings", e)
         }
     }
 
-    private fun getBestVoiceForLocale(ttsEngine: TextToSpeech, targetLocale: Locale): Voice? {
+    fun resolveSystemVoiceForPreset(preset: PresetVoice): Voice? {
+        val ttsEngine = tts ?: return null
         val available = ttsEngine.voices ?: return null
-        val targetLang = targetLocale.language.lowercase(Locale.ROOT)
-        val targetCountry = targetLocale.country.lowercase(Locale.ROOT)
+        if (available.isEmpty()) return null
 
-        var candidateVoices = available.filter { v ->
-            v.locale.language.equals(targetLang, ignoreCase = true)
-        }
+        val isMale = preset.gender.equals("Male", ignoreCase = true)
 
-        if (candidateVoices.isEmpty()) {
-            candidateVoices = available.filter { v ->
-                v.locale.language.equals("hi", ignoreCase = true) || v.locale.language.equals("en", ignoreCase = true)
-            }
-        }
+        val langFiltered = available.filter { v ->
+            val l = v.locale.language.lowercase(Locale.ROOT)
+            val c = v.locale.country.lowercase(Locale.ROOT)
+            l == "hi" || (l == "en" && (c == "in" || c == "gb" || c == "us"))
+        }.ifEmpty { available.toList() }
 
-        if (candidateVoices.isEmpty()) return null
-
-        val detectedPitch = com.example.manager.OfflineVoiceCloneManager.detectedPitchHz.value
-        val isMaleOwner = detectedPitch < 165 // Adult male voice fundamental frequency 85-165Hz
-
-        return candidateVoices.maxByOrNull { v ->
+        return langFiltered.maxByOrNull { v ->
             var score = 0
             val n = v.name.lowercase(Locale.ROOT)
-            val isFemaleVoice = n.contains("female") || n.contains("-hie-") || n.contains("-hia-") || n.contains("-hib-") || n.contains("-ena-") || n.contains("-ene-") || n.contains("-enf-")
-            val isMaleVoice = n.contains("male") || n.contains("-hid-") || n.contains("-hic-") || n.contains("-cfc-") || n.contains("-end-") || n.contains("-enc-") || n.contains("-cfa-") || n.contains("d-local") || n.contains("c-local") || n.contains("-m-")
 
-            // Strictly preserve owner's authentic vocal gender profile to prevent inconsistent female voice
-            if (isMaleOwner) {
-                if (isMaleVoice) score += 1000
-                if (isFemaleVoice) score -= 1000
+            val voiceIsMale = n.contains("male") || n.contains("-hid-") || n.contains("-hic-") || n.contains("-cfc-") || n.contains("-end-") || n.contains("-enc-") || n.contains("-cfa-") || n.contains("d-local") || n.contains("c-local") || n.contains("-m-")
+            val voiceIsFemale = n.contains("female") || n.contains("-hie-") || n.contains("-hia-") || n.contains("-hib-") || n.contains("-ena-") || n.contains("-ene-") || n.contains("-enf-")
+
+            if (isMale) {
+                if (voiceIsMale) score += 2000
+                if (voiceIsFemale) score -= 2000
             } else {
-                if (isFemaleVoice) score += 1000
-                if (isMaleVoice) score -= 1000
+                if (voiceIsFemale) score += 2000
+                if (voiceIsMale) score -= 2000
             }
 
-            // Quality & naturalness tuning (BUG 4 Cosmetic Tuning: Set to Highest/Best HD Neural)
-            if (v.quality == Voice.QUALITY_VERY_HIGH) score += 250
-            else if (v.quality == Voice.QUALITY_HIGH) score += 120
-            if (v.name.contains("neural", ignoreCase = true)) score += 200
-            if (v.name.contains("wavenet", ignoreCase = true)) score += 200
-            if (v.name.contains("natural", ignoreCase = true)) score += 150
-            if (v.locale.country.equals(targetCountry, ignoreCase = true)) score += 40
-            if (!v.isNetworkConnectionRequired) score += 30 // Offline instant latency
+            for (kw in preset.preferredKeywords) {
+                if (n.contains(kw.lowercase(Locale.ROOT))) {
+                    score += 500
+                }
+            }
+
+            if (v.quality == Voice.QUALITY_VERY_HIGH) score += 400
+            else if (v.quality == Voice.QUALITY_HIGH) score += 200
+            if (n.contains("neural")) score += 300
+            if (n.contains("wavenet")) score += 300
+            if (n.contains("network")) score += 100
+            if (!v.isNetworkConnectionRequired) score += 50
+
+            if (v.locale.language == "hi") score += 150
+            if (v.locale.country.equals("in", ignoreCase = true)) score += 100
+
             score
         }
     }
 
-    private fun refreshAvailableVoices() {
-        val ttsInstance = tts ?: return
-        try {
-            val systemVoices = ttsInstance.voices ?: emptySet()
-            val list = mutableListOf<VoiceProfileInfo>()
-
-            list.add(
-                VoiceProfileInfo(
-                    id = "auto_natural",
-                    displayName = "Auto Natural Neural (High Definition Hindi & Indian English)",
-                    languageCode = "hi-IN / en-IN",
-                    isDefault = true
-                )
-            )
-
-            for (v in systemVoices) {
-                val locale = v.locale
-                val lang = locale.language.lowercase(Locale.ROOT)
-                val country = locale.country.lowercase(Locale.ROOT)
-
-                if (lang == "hi" || (lang == "en" && (country == "in" || country == "gb" || country == "us"))) {
-                    val qualityStr = if (v.quality >= Voice.QUALITY_VERY_HIGH) " (HD Neural)" else if (v.quality >= Voice.QUALITY_HIGH) " (HD)" else ""
-                    val isHindi = lang == "hi"
-                    val label = "${if (isHindi) "Hindi" else "English ($country)"} Voice: ${v.name.substringAfterLast("-")}$qualityStr"
-                    list.add(
-                        VoiceProfileInfo(
-                            id = v.name,
-                            displayName = label,
-                            languageCode = "${locale.language}-${locale.country}"
-                        )
-                    )
-                }
-            }
-            _availableVoices.value = list
-        } catch (e: Exception) {
-            Log.w(TAG, "Error enumerating TTS voices", e)
+    /**
+     * Primary Central TTS Function for the entire application.
+     * Guaranteed to consistently use the selected preset voice with unified pitch & rate.
+     */
+    fun speakWithSelectedVoice(
+        text: String,
+        caller: String = "general",
+        queueMode: Int = TextToSpeech.QUEUE_FLUSH,
+        onDone: (() -> Unit)? = null
+    ): Boolean {
+        val cleanText = sanitizeForSpeech(text)
+        if (cleanText.isBlank()) {
+            onDone?.let { postOnMain { it.invoke() } }
+            return false
         }
+
+        val currentPreset = _selectedPreset.value
+
+        // Exact Required Debug Log: "TTS_CALL: using_voice=<naam>, text=<>"
+        DebugLogger.logTtsCall(usingVoice = currentPreset.name, text = cleanText)
+        DebugLogger.logTtsCallSource(source = caller, voiceUsed = currentPreset.name)
+
+        val ttsEngine = tts
+        if (ttsEngine == null || !isInitialized) {
+            pendingSpeech = cleanText
+            pendingCallback = onDone
+            return false
+        }
+
+        try {
+            val effectivePitch = (_pitch.value * currentPreset.pitchMultiplier).coerceIn(0.6f, 1.8f)
+            ttsEngine.setPitch(effectivePitch)
+            ttsEngine.setSpeechRate(_speechRate.value.coerceIn(0.7f, 1.6f))
+
+            val hasDevanagari = cleanText.any { it in '\u0900'..'\u097F' }
+            val lower = cleanText.lowercase()
+            val isHinglish = listOf(
+                "ji", "sir", "ho gaya", "kar diya", "khol diya", "khol", "karo", "chalao", "dekho",
+                "samajh", "raha", "hoon", "nahi", "theek", "hai", "batao", "sunao", "badha", "ghata",
+                "namaste", "shukriya", "dost", "dhoondo", "lagao", "bajao"
+            ).any { lower.contains(it) }
+
+            val targetLocale = if (hasDevanagari || isHinglish || _languageMode.value == "hi_IN") {
+                Locale("hi", "IN")
+            } else {
+                Locale("en", "IN")
+            }
+
+            val langResult = ttsEngine.setLanguage(targetLocale)
+            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                ttsEngine.setLanguage(Locale.ENGLISH)
+            }
+
+            resolveSystemVoiceForPreset(currentPreset)?.let {
+                ttsEngine.voice = it
+            }
+
+            val utteranceId = "tts_${currentPreset.id}_${System.currentTimeMillis()}_${cleanText.hashCode()}"
+            if (onDone != null) {
+                callbacks[utteranceId] = onDone
+            }
+
+            _isSpeaking.value = true
+            ttsEngine.speak(cleanText, queueMode, null, utteranceId)
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in speakWithSelectedVoice", e)
+            _isSpeaking.value = false
+            onDone?.let { postOnMain { it.invoke() } }
+            return false
+        }
+    }
+
+    /**
+     * Backward-compatible alias routing directly to speakWithSelectedVoice.
+     */
+    fun speakIfVoiceReady(
+        text: String,
+        caller: String = "general",
+        queueMode: Int = TextToSpeech.QUEUE_FLUSH,
+        onDone: (() -> Unit)? = null
+    ): Boolean {
+        return speakWithSelectedVoice(text, caller = caller, queueMode = queueMode, onDone = onDone)
+    }
+
+    fun speak(text: String, onDone: (() -> Unit)? = null) {
+        speakWithSelectedVoice(text, caller = "general", onDone = onDone)
+    }
+
+    fun speak(text: String, queueMode: Int, onDone: (() -> Unit)? = null) {
+        speakWithSelectedVoice(text, caller = "general", queueMode = queueMode, onDone = onDone)
+    }
+
+    /**
+     * Speaks the sample phrase for a specific preset voice without changing the user's permanent selection.
+     */
+    fun speakSampleForPreset(preset: PresetVoice, onDone: (() -> Unit)? = null) {
+        val ttsEngine = tts ?: return
+        try {
+            val effectivePitch = (_pitch.value * preset.pitchMultiplier).coerceIn(0.6f, 1.8f)
+            ttsEngine.setPitch(effectivePitch)
+            ttsEngine.setSpeechRate(_speechRate.value.coerceIn(0.7f, 1.6f))
+            ttsEngine.setLanguage(Locale("hi", "IN"))
+
+            resolveSystemVoiceForPreset(preset)?.let {
+                ttsEngine.voice = it
+            }
+
+            DebugLogger.logTtsCall(usingVoice = preset.name, text = preset.sampleText)
+            DebugLogger.logTtsCallSource(source = "SettingsSample", voiceUsed = preset.name)
+
+            val utteranceId = "sample_${preset.id}_${System.currentTimeMillis()}"
+            if (onDone != null) {
+                callbacks[utteranceId] = onDone
+            }
+            _isSpeaking.value = true
+            ttsEngine.speak(preset.sampleText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error playing preset sample", e)
+            onDone?.invoke()
+        }
+    }
+
+    fun setPitch(context: Context, newPitch: Float) {
+        _pitch.value = newPitch.coerceIn(0.7f, 1.5f)
+        applyAudioSettings()
+        savePreferences(context)
+    }
+
+    fun setSpeechRate(context: Context, newRate: Float) {
+        _speechRate.value = newRate.coerceIn(0.7f, 1.5f)
+        applyAudioSettings()
+        savePreferences(context)
+    }
+
+    fun setLanguageMode(context: Context, mode: String) {
+        _languageMode.value = mode
+        savePreferences(context)
+    }
+
+    fun resetToDefaults(context: Context) {
+        _pitch.value = 1.0f
+        _speechRate.value = 1.02f
+        _selectedPreset.value = ARJUN
+        _languageMode.value = "auto"
+        applyAudioSettings()
+        savePreferences(context)
+        DebugLogger.logVoiceSelected(name = ARJUN.name, voiceId = ARJUN.id)
+    }
+
+    fun testSampleSpeech(context: Context, isHindi: Boolean = true) {
+        val sample = if (isHindi) {
+            "नमस्ते! मैं मैक्स हूँ. आपकी आवाज़ और सेटिंग्स बिल्कुल सही काम कर रही हैं."
+        } else {
+            "Hello! I am Max. Your unified speech engine and voice settings are working perfectly."
+        }
+        speakWithSelectedVoice(sample, caller = "SettingsTest")
+    }
+
+    fun testPhrases(context: Context, phraseIndex: Int) {
+        val phrase = when (phraseIndex) {
+            0 -> "YouTube khul gaya"
+            1 -> "WiFi on kar diya"
+            2 -> "आज तापमान 28 डिग्री सेल्सियस है और मौसम साफ है"
+            3 -> "Auto-reply on ho gaya"
+            4 -> "Alert: Phone moving without authorization!"
+            5 -> "Maine aapki permanent memories me save kar liya hai"
+            else -> "Max AI assistant taiyaar hai"
+        }
+        speakWithSelectedVoice(phrase, caller = "SettingsTest")
     }
 
     private fun sanitizeForSpeech(raw: String): String {
@@ -258,359 +470,8 @@ object TtsManager {
             .trim()
     }
 
-    /**
-     * Centralized unified speak function used across ALL app features:
-     * - Weather reports
-     * - Anti-theft alerts & confirmations
-     * - Gemini camera scene analysis responses
-     * - WhatsApp auto-reply toggles & responses
-     * - Call announce & incoming caller speech
-     * - Reminders & Alarms
-     * - Hardware toggles & App launcher confirmations
-     * - Long term memory recall & storage confirmations
-     */
-    /**
-     * CENTRAL SINGLE-SOURCE-OF-TRUTH TTS GATE:
-     * 1. Checks if authentic voice cloning profile exists (real recorded sample, not default/fallback).
-     * 2. If YES -> Synthesizes using the cloned voice.
-     * 3. If NO -> Stays SILENT, logs & displays short Toast: "Voice-cloning setup pending".
-     *
-     * Emits exact debug log:
-     * "TTS_GATE_CHECK: voice_profile_exists=<true/false>, caller=<kaunsa feature>, action=<speak/skip>"
-     */
-    fun speakIfVoiceReady(
-        text: String,
-        caller: String = "general",
-        queueMode: Int = TextToSpeech.QUEUE_FLUSH,
-        onDone: (() -> Unit)? = null
-    ): Boolean {
-        val cleanText = sanitizeForSpeech(text)
-        if (cleanText.isBlank()) {
-            onDone?.let { mainHandler.post { it.invoke() } }
-            return false
-        }
-
-        val profileExists = com.example.manager.OfflineVoiceCloneManager.hasRealVoiceProfile(appContext)
-        val source = if (caller.equals("SettingsTest", ignoreCase = true)) "SettingsTest" else "ConversationResponse"
-        val voiceUsed = if (profileExists) "cloned" else "default"
-
-        DebugLogger.logTtsCallSource(source = source, voiceUsed = voiceUsed)
-        DebugLogger.logTtsGateCheck(profileExists = profileExists, caller = caller, action = if (profileExists) "speak" else "skip")
-        DebugLogger.logTtsCallPath(feature = caller, usedCentralGate = true, voiceUsed = voiceUsed)
-
-        if (profileExists) {
-            DebugLogger.logTtsSpeakCalled(true, cleanText)
-            DebugLogger.logInfo("TTS Gate [$caller]: Speaking with Cloned Voice: \"$cleanText\"")
-
-            return com.example.manager.OfflineVoiceCloneManager.speakWithClonedVoice(
-                cleanText,
-                onDone = onDone
-            )
-        } else {
-            // Voice profile does NOT exist yet!
-            // Remain completely silent.
-            DebugLogger.logInfo("Voice-cloning setup pending (TTS suppressed for caller '$caller')")
-
-            appContext?.let { ctx ->
-                mainHandler.post {
-                    try {
-                        android.widget.Toast.makeText(ctx, "Voice-cloning setup pending", android.widget.Toast.LENGTH_SHORT).show()
-                    } catch (_: Throwable) {}
-                }
-            }
-
-            // Immediately invoke callback so caller flow is never stalled
-            onDone?.let { mainHandler.post { it.invoke() } }
-            return false
-        }
-    }
-
-    /**
-     * Backward-compatible delegation strictly routed through the Central TTS Gate.
-     */
-    fun speak(text: String, onDone: (() -> Unit)? = null) {
-        speakIfVoiceReady(text, caller = "general", queueMode = TextToSpeech.QUEUE_FLUSH, onDone = onDone)
-    }
-
-    fun speak(text: String, queueMode: Int, onDone: (() -> Unit)? = null) {
-        speakIfVoiceReady(text, caller = "general", queueMode = queueMode, onDone = onDone)
-    }
-
-    /**
-     * Speaks exclusively using the owner's authentic cloned voice profile.
-     * Enforces exact pitch calibration, vocal speed, and zero background audio.
-     */
-    fun speakWithClonedVoice(
-        cleanText: String,
-        pitchFactor: Float,
-        speechRate: Float,
-        onDone: (() -> Unit)? = null
-    ) {
-        DebugLogger.logTtsAudioSource("synthesized_new")
-        DebugLogger.logBackgroundSoundPlaying(false, "none")
-        DebugLogger.logTtsCallPath(feature = "cloned_profile", usedCentralGate = true, voiceUsed = "cloned")
-
-        // Ensure any lingering media playback or external background audio is stopped
-        com.example.manager.OfflineVoiceCloneManager.stopPlayback()
-
-        val ttsEngine = tts
-        if (ttsEngine == null || !isInitialized) {
-            pendingSpeech = cleanText
-            pendingCallback = onDone
-            return
-        }
-
-        try {
-            // BUG 4 FIX: Natural acoustic smoothing & cosmetic parameter tuning
-            // Clamp pitch to [0.92f, 1.15f] and speech rate to [0.95f, 1.10f] so output sounds natural and smooth, not robotic or metallic
-            val tunedPitch = pitchFactor.coerceIn(0.92f, 1.15f)
-            val tunedRate = speechRate.coerceIn(0.95f, 1.10f)
-            ttsEngine.setPitch(tunedPitch)
-            ttsEngine.setSpeechRate(tunedRate)
-
-            val hasDevanagari = cleanText.any { it in '\u0900'..'\u097F' }
-            val lower = cleanText.lowercase()
-            val isHinglish = listOf(
-                "ji", "sir", "ho gaya", "kar diya", "khol diya", "khol", "karo", "chalao", "dekho",
-                "samajh", "raha", "hoon", "nahi", "theek", "hai", "batao", "sunao", "badha", "ghata",
-                "namaste", "shukriya", "dost", "dhoondo", "lagao", "bajao"
-            ).any { lower.contains(it) }
-
-            val targetLocale = if (hasDevanagari || isHinglish) Locale("hi", "IN") else Locale("en", "IN")
-
-            val langResult = ttsEngine.setLanguage(targetLocale)
-            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                ttsEngine.setLanguage(Locale("hi", "IN"))
-            }
-
-            val selectedVoice = _selectedVoiceId.value
-            if (selectedVoice != "auto_natural") {
-                val matchingVoice = ttsEngine.voices?.find { it.name == selectedVoice }
-                if (matchingVoice != null) {
-                    ttsEngine.voice = matchingVoice
-                } else {
-                    getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
-                        ttsEngine.voice = best
-                    }
-                }
-            } else {
-                val best = getBestVoiceForLocale(ttsEngine, targetLocale)
-                    ?: getBestVoiceForLocale(ttsEngine, Locale("hi", "IN"))
-                    ?: getBestVoiceForLocale(ttsEngine, Locale("en", "IN"))
-                if (best != null) {
-                    ttsEngine.voice = best
-                }
-            }
-
-            val utteranceId = "cloned_tts_${System.currentTimeMillis()}_${cleanText.hashCode()}"
-            if (onDone != null) {
-                callbacks[utteranceId] = onDone
-            }
-
-            _isSpeaking.value = true
-            ttsEngine.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in speakWithClonedVoice", e)
-            _isSpeaking.value = false
-            onDone?.let { mainHandler.post { it.invoke() } }
-        }
-    }
-
-    private fun speakWithDefaultTts(cleanText: String, queueMode: Int, onDone: (() -> Unit)? = null) {
-        DebugLogger.logTtsAudioSource("synthesized_new")
-        DebugLogger.logBackgroundSoundPlaying(false, "none")
-
-        if (!isInitialized || tts == null) {
-            pendingSpeech = cleanText
-            pendingCallback = onDone
-            return
-        }
-
-        try {
-            val ttsEngine = tts!!
-
-            // 1. Always enforce unified user Pitch & Speech Rate
-            ttsEngine.setPitch(_pitch.value)
-            ttsEngine.setSpeechRate(_speechRate.value)
-
-            // 2. Determine Smart Script / Language Target
-            val hasDevanagari = cleanText.any { it in '\u0900'..'\u097F' }
-            val mode = _languageMode.value
-
-            val targetLocale = when {
-                mode == "hi_IN" -> Locale("hi", "IN")
-                mode == "en_IN" -> Locale("en", "IN")
-                hasDevanagari -> Locale("hi", "IN")
-                else -> Locale("en", "IN")
-            }
-
-            // Set language matching the content to ensure zero phonetic distortions
-            val langResult = ttsEngine.setLanguage(targetLocale)
-            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                if (targetLocale.language == "hi") {
-                    ttsEngine.setLanguage(Locale.ENGLISH)
-                }
-            }
-
-            // 3. Apply custom selected voice or best natural voice
-            val selectedVoice = _selectedVoiceId.value
-            if (selectedVoice != "auto_natural") {
-                val matchingVoice = ttsEngine.voices?.find { it.name == selectedVoice }
-                if (matchingVoice != null) {
-                    ttsEngine.voice = matchingVoice
-                }
-            } else {
-                // Automatically pick the highest quality natural voice available
-                getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
-                    ttsEngine.voice = best
-                }
-            }
-
-            val utteranceId = "max_tts_${System.currentTimeMillis()}_${cleanText.hashCode()}"
-            if (onDone != null) {
-                callbacks[utteranceId] = onDone
-            }
-
-            ttsEngine.speak(cleanText, queueMode, null, utteranceId)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error speaking text in unified TTS", e)
-            _isSpeaking.value = false
-            onDone?.let { mainHandler.post { it.invoke() } }
-        }
-    }
-
-    fun setPitch(context: Context, value: Float) {
-        _pitch.value = value.coerceIn(0.7f, 1.5f)
-        applyAudioSettings()
-        savePreferences(context)
-    }
-
-    fun setSpeechRate(context: Context, value: Float) {
-        _speechRate.value = value.coerceIn(0.7f, 1.5f)
-        applyAudioSettings()
-        savePreferences(context)
-    }
-
-    fun setVoiceId(context: Context, voiceId: String) {
-        _selectedVoiceId.value = voiceId
-        savePreferences(context)
-    }
-
-    fun setLanguageMode(context: Context, mode: String) {
-        _languageMode.value = mode
-        savePreferences(context)
-    }
-
-    fun resetToDefaults(context: Context) {
-        _pitch.value = 1.0f
-        _speechRate.value = 1.02f
-        _selectedVoiceId.value = "auto_natural"
-        _languageMode.value = "auto"
-        applyAudioSettings()
-        savePreferences(context)
-    }
-
-    fun testSampleSpeech(context: Context, isHindi: Boolean = true) {
-        val sample = if (isHindi) {
-            "नमस्ते! मैं मैक्स हूँ. आपकी आवाज़ और सेटिंग्स बिल्कुल सही काम कर रही हैं."
-        } else {
-            "Hello! I am Max. Your unified speech engine and voice settings are working perfectly."
-        }
-        speak(sample)
-    }
-
-    /**
-     * Synthesizes speech with acoustic vocal-tract profile matching the owner's voice sample (100% offline).
-     */
-    fun speakWithAcousticProfile(
-        text: String,
-        pitchFactor: Float,
-        rateFactor: Float,
-        onDone: (() -> Unit)? = null
-    ): Boolean {
-        if (!isInitialized || tts == null) return false
-        try {
-            val ttsEngine = tts!!
-
-            // Smart language detection matching text script
-            val hasDevanagari = text.any { it in '\u0900'..'\u097F' }
-            val mode = _languageMode.value
-            val targetLocale = when {
-                mode == "hi_IN" -> Locale("hi", "IN")
-                mode == "en_IN" -> Locale("en", "IN")
-                hasDevanagari -> Locale("hi", "IN")
-                else -> Locale("en", "IN")
-            }
-            ttsEngine.setLanguage(targetLocale)
-
-            // Select matching timbre (male/female) according to owner's measured fundamental pitch
-            val detectedPitch = com.example.manager.OfflineVoiceCloneManager.detectedPitchHz.value
-            val isMaleOwner = detectedPitch < 165 // Adult male voice fundamental frequency 85-165Hz
-
-            val available = ttsEngine.voices ?: emptySet()
-            val candidateVoices = available.filter { v ->
-                v.locale.language.equals(targetLocale.language, ignoreCase = true)
-            }
-
-            val matchingVoice = if (isMaleOwner) {
-                candidateVoices.firstOrNull { v ->
-                    val n = v.name.lowercase(Locale.ROOT)
-                    n.contains("male") || n.contains("-hid-") || n.contains("-hic-") || n.contains("-cfc-") || n.contains("-end-") || n.contains("-enc-")
-                } ?: candidateVoices.firstOrNull { v ->
-                    val n = v.name.lowercase(Locale.ROOT)
-                    !n.contains("female") && (n.contains("d-local") || n.contains("c-local"))
-                }
-            } else {
-                candidateVoices.firstOrNull { v ->
-                    val n = v.name.lowercase(Locale.ROOT)
-                    n.contains("female") || n.contains("-hie-") || n.contains("-hia-") || n.contains("-hib-") || n.contains("-ena-")
-                }
-            }
-
-            if (matchingVoice != null) {
-                ttsEngine.voice = matchingVoice
-            } else {
-                getBestVoiceForLocale(ttsEngine, targetLocale)?.let { best ->
-                    ttsEngine.voice = best
-                }
-            }
-
-            // Standard natural Android TTS parameters without fake pitch-shifting shortcut
-            val effectivePitch = (_pitch.value * pitchFactor).coerceIn(0.8f, 1.2f)
-            val effectiveRate = (_speechRate.value * rateFactor).coerceIn(0.8f, 1.4f)
-
-            ttsEngine.setPitch(effectivePitch)
-            ttsEngine.setSpeechRate(effectiveRate)
-
-            val utteranceId = "offline_clone_${System.currentTimeMillis()}"
-            if (onDone != null) {
-                callbacks[utteranceId] = onDone
-            }
-
-            val result = ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
-            return result == TextToSpeech.SUCCESS
-        } catch (e: Exception) {
-            Log.w(TAG, "Error in speakWithAcousticProfile", e)
-            return false
-        }
-    }
-
-    fun testPhrases(context: Context, phraseIndex: Int) {
-        val phrase = when (phraseIndex) {
-            0 -> "YouTube khul gaya"
-            1 -> "WiFi on kar diya"
-            2 -> "आज तापमान 28 डिग्री सेल्सियस है और मौसम साफ है"
-            3 -> "Auto-reply on ho gaya"
-            4 -> "Alert: Phone moving without authorization!"
-            5 -> "Maine aapki permanent memories me save kar liya hai"
-            else -> "Max AI assistant taiyaar hai"
-        }
-        speak(phrase)
-    }
-
     fun stop() {
         try {
-            com.example.manager.OfflineVoiceCloneManager.stop()
             tts?.stop()
             _isSpeaking.value = false
         } catch (e: Exception) {
@@ -620,7 +481,6 @@ object TtsManager {
 
     fun shutdown() {
         try {
-            com.example.manager.OfflineVoiceCloneManager.stop()
             callbacks.clear()
             tts?.stop()
             tts?.shutdown()

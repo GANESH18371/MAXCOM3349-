@@ -49,8 +49,7 @@ class MainActivity : ComponentActivity() {
 
         // Initialize local hardware managers
         HardwareToggleManager.initTorch(this)
-        com.example.manager.OfflineVoiceCloneManager.init(this)
-        com.example.service.CloneTtsDaemonService.startDaemon(this)
+
         com.example.util.TtsManager.init(this)
         com.example.manager.AntiTheftManager.init(this)
         com.example.manager.CallManager.init(this)

@@ -3,6 +3,7 @@ package com.example.ui.components
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,32 +19,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Hearing
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,7 +47,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.util.TtsManager
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkOutline
 import com.example.ui.theme.DarkSurfaceCard
@@ -62,8 +56,9 @@ import com.example.ui.theme.NeonLime
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import com.example.util.PresetVoice
+import com.example.util.TtsManager
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VoiceSettingsCard(
     modifier: Modifier = Modifier
@@ -72,12 +67,9 @@ fun VoiceSettingsCard(
 
     val pitch by TtsManager.pitch.collectAsState()
     val speechRate by TtsManager.speechRate.collectAsState()
-    val selectedVoiceId by TtsManager.selectedVoiceId.collectAsState()
+    val selectedPreset by TtsManager.selectedPreset.collectAsState()
     val languageMode by TtsManager.languageMode.collectAsState()
     val isSpeaking by TtsManager.isSpeaking.collectAsState()
-    val availableVoices by TtsManager.availableVoices.collectAsState()
-
-    var isVoiceDropdownExpanded by remember { mutableStateOf(false) }
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -125,7 +117,7 @@ fun VoiceSettingsCard(
                             color = TextPrimary
                         )
                         Text(
-                            text = "Single Voice Across All Features • Zero Robotic Mismatch",
+                            text = "4 Natural Presets (2 Male, 2 Female) • Unified Everywhere",
                             fontSize = 11.sp,
                             color = TextMuted
                         )
@@ -135,7 +127,7 @@ fun VoiceSettingsCard(
                 IconButton(
                     onClick = {
                         TtsManager.resetToDefaults(context)
-                        Toast.makeText(context, "Voice settings reset to defaults", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Voice reset to Arjun (Default)", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.size(32.dp)
                 ) {
@@ -150,13 +142,13 @@ fun VoiceSettingsCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Consistency Guarantee Badge
+            // Active Preset Banner
             Card(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, NeonLime.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                    .border(1.dp, CyberCyan.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -166,19 +158,19 @@ fun VoiceSettingsCard(
                     Icon(
                         imageVector = Icons.Default.Hearing,
                         contentDescription = null,
-                        tint = NeonLime,
+                        tint = CyberCyan,
                         modifier = Modifier.size(20.dp)
                     )
                     Column {
                         Text(
-                            text = "100% UNIFIED SINGLETON TTS ENGINE",
+                            text = "CURRENT ACTIVE VOICE: ${selectedPreset.name.uppercase()} (${selectedPreset.gender.uppercase()})",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = NeonLime,
+                            color = CyberCyan,
                             letterSpacing = 0.5.sp
                         )
                         Text(
-                            text = "Weather, Camera Gemini Vision, Anti-Theft, WhatsApp Auto-Reply, and Hardware Toggles all speak through this central voice manager.",
+                            text = "App-open, hardware toggles, weather, WhatsApp auto-reply, camera vision, and conversations all speak in this chosen voice.",
                             fontSize = 11.sp,
                             color = TextSecondary,
                             lineHeight = 15.sp
@@ -187,7 +179,48 @@ fun VoiceSettingsCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // SECTION 1: 4 PRESET VOICES SELECTION
+            Text(
+                text = "CHOOSE YOUR MAX VOICE (4 NATURAL PRESETS)",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextMuted,
+                letterSpacing = 1.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TtsManager.PRESET_VOICES.forEach { preset ->
+                    val isSelected = selectedPreset.id == preset.id
+                    PresetVoiceCard(
+                        preset = preset,
+                        isSelected = isSelected,
+                        onSelect = {
+                            TtsManager.selectPresetVoice(context, preset.id)
+                            Toast.makeText(context, "${preset.name} voice selected", Toast.LENGTH_SHORT).show()
+                        },
+                        onSamplePlay = {
+                            TtsManager.speakSampleForPreset(preset)
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // SECTION 2: AUDIO TUNING SLIDERS (APPLIED TO PRESET VOICES)
+            Text(
+                text = "AUDIO TUNING (APPLIES TO SELECTED VOICE)",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextMuted,
+                letterSpacing = 1.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Pitch Slider
             Column {
@@ -323,11 +356,11 @@ fun VoiceSettingsCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Test Voice Buttons
+            // SECTION 3: TEST SELECTED VOICE ACROSS PHRASES
             Text(
-                text = "TEST UNIFIED SYSTEM VOICE ACTIONS",
+                text = "TEST SELECTED VOICE WITH SYSTEM PHRASES",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextMuted,
@@ -335,7 +368,6 @@ fun VoiceSettingsCard(
             )
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Grid of test phrases: App Open, WiFi Toggle, Weather, Auto-Reply, Anti-Theft, Memory Recall
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -390,32 +422,126 @@ fun VoiceSettingsCard(
                         Text("▶ Auto-reply on ho gaya", fontSize = 10.sp, color = TextPrimary)
                     }
                 }
+            }
+        }
+    }
+}
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+@Composable
+private fun PresetVoiceCard(
+    preset: PresetVoice,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onSamplePlay: () -> Unit
+) {
+    val borderColor = if (isSelected) CyberCyan else DarkOutline
+    val containerColor = if (isSelected) CyberCyan.copy(alpha = 0.08f) else DarkSurfaceVariant
+    val accentColor = if (preset.gender == "Male") CyberCyan else NeonAmber
+
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(if (isSelected) 1.5.dp else 1.dp, borderColor, RoundedCornerShape(12.dp))
+            .clickable { onSelect() }
+            .testTag("preset_voice_${preset.id}")
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                RadioButton(
+                    selected = isSelected,
+                    onClick = onSelect,
+                    colors = RadioButtonDefaults.colors(
+                        selectedColor = CyberCyan,
+                        unselectedColor = TextMuted
+                    ),
+                    modifier = Modifier.size(20.dp)
+                )
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(accentColor.copy(alpha = 0.15f), CircleShape)
+                        .border(1.dp, accentColor.copy(alpha = 0.5f), CircleShape)
                 ) {
-                    Button(
-                        onClick = { TtsManager.testPhrases(context, 4) },
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(36.dp)
-                    ) {
-                        Text("▶ Anti-theft alert", fontSize = 10.sp, color = TextPrimary)
-                    }
+                    Text(
+                        text = preset.name.first().toString(),
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor,
+                        fontSize = 14.sp
+                    )
+                }
 
-                    Button(
-                        onClick = { TtsManager.testPhrases(context, 5) },
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(36.dp)
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("▶ Memory recall", fontSize = 10.sp, color = TextPrimary)
+                        Text(
+                            text = preset.name,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Box(
+                            modifier = Modifier
+                                .background(accentColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = preset.gender.uppercase(),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentColor
+                            )
+                        }
                     }
+                    Text(
+                        text = preset.subtitle,
+                        fontSize = 10.sp,
+                        color = TextSecondary
+                    )
+                }
+            }
+
+            Button(
+                onClick = onSamplePlay,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isSelected) CyberCyan else DarkOutline
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .height(32.dp)
+                    .testTag("play_sample_${preset.id}")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Sample Sunein",
+                        tint = if (isSelected) Color.Black else TextPrimary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "Sample Sunein",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) Color.Black else TextPrimary
+                    )
                 }
             }
         }

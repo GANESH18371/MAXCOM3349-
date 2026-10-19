@@ -618,36 +618,31 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun offlineVoiceCloning_stateAndLifecycleTest() {
+    fun presetVoices_stateAndLifecycleTest() {
         DebugLogger.clearLogs()
 
-        // 1. Verify OfflineVoiceCloneManager default state
-        assertEquals("http://127.0.0.1:8080/api/tts", com.example.manager.OfflineVoiceCloneManager.DEFAULT_LOCAL_API_URL)
-        assertEquals("ON_DEVICE", com.example.manager.OfflineVoiceCloneManager.engineMode.value)
+        // 1. Verify TtsManager 4 Preset Voices (2 Male, 2 Female)
+        assertEquals(4, com.example.util.TtsManager.PRESET_VOICES.size)
+        val maleVoices = com.example.util.TtsManager.PRESET_VOICES.filter { it.gender == "Male" }
+        val femaleVoices = com.example.util.TtsManager.PRESET_VOICES.filter { it.gender == "Female" }
+        assertEquals(2, maleVoices.size)
+        assertEquals(2, femaleVoices.size)
+        assertTrue(maleVoices.any { it.name == "Arjun" })
+        assertTrue(maleVoices.any { it.name == "Rohan" })
+        assertTrue(femaleVoices.any { it.name == "Ananya" })
+        assertTrue(femaleVoices.any { it.name == "Priya" })
 
-        // 2. Logging formats
-        DebugLogger.logInfo("Offline Voice Clone created! Duration: 2.1s, Pitch: 145Hz")
-        DebugLogger.logInfo("Spoke in owner's cloned voice (Pitch: 145Hz, Shift: 1.1x)")
-
-        val logs = DebugLogger.logs.value
-        assertTrue(logs.any { it.message.contains("Offline Voice Clone created! Duration: 2.1s") })
-        assertTrue(logs.any { it.message.contains("Spoke in owner's cloned voice") })
-
-        // 3. Exact required log formats for CloneTTS Server Status & Synthesis Attempts
-        DebugLogger.logCloneTtsServerStatus("running")
-        DebugLogger.logCloneTtsServerStatus("failed")
-        DebugLogger.logCloneTtsServerStatus("not-started")
-        DebugLogger.logCloneTtsSynthesisAttempt(true, "none")
-        DebugLogger.logCloneTtsSynthesisAttempt(false, "voice profile nahi mila")
-        DebugLogger.logCloneTtsSynthesisAttempt(false, "audio generate nahi ho saka")
+        // 2. Exact required debug log formats
+        DebugLogger.logVoiceSelected("Arjun", "hi-in-x-hid-local")
+        DebugLogger.logVoiceSelected("Ananya", "hi-in-x-hie-local")
+        DebugLogger.logTtsCall("Arjun", "YouTube khul gaya")
+        DebugLogger.logTtsCall("Ananya", "WiFi on kar diya")
 
         val currentLogs = DebugLogger.logs.value
-        assertTrue(currentLogs.any { it.message == "CLONETTS_SERVER_STATUS: running" })
-        assertTrue(currentLogs.any { it.message == "CLONETTS_SERVER_STATUS: failed" })
-        assertTrue(currentLogs.any { it.message == "CLONETTS_SERVER_STATUS: not-started" })
-        assertTrue(currentLogs.any { it.message == "CLONETTS_SYNTHESIS_ATTEMPT: success, error=none" })
-        assertTrue(currentLogs.any { it.message == "CLONETTS_SYNTHESIS_ATTEMPT: fail, error=voice profile nahi mila" })
-        assertTrue(currentLogs.any { it.message == "CLONETTS_SYNTHESIS_ATTEMPT: fail, error=audio generate nahi ho saka" })
+        assertTrue(currentLogs.any { it.message == "VOICE_SELECTED: name=Arjun, voice_id=hi-in-x-hid-local" })
+        assertTrue(currentLogs.any { it.message == "VOICE_SELECTED: name=Ananya, voice_id=hi-in-x-hie-local" })
+        assertTrue(currentLogs.any { it.message == "TTS_CALL: using_voice=Arjun, text=YouTube khul gaya" })
+        assertTrue(currentLogs.any { it.message == "TTS_CALL: using_voice=Ananya, text=WiFi on kar diya" })
     }
 
     @Test
