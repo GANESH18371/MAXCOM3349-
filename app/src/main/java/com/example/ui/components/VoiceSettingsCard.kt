@@ -117,7 +117,7 @@ fun VoiceSettingsCard(
                             color = TextPrimary
                         )
                         Text(
-                            text = "4 Natural Presets (2 Male, 2 Female) • Unified Everywhere",
+                            text = "2 Natural Voices (Male & Female) • Unified Everywhere",
                             fontSize = 11.sp,
                             color = TextMuted
                         )
@@ -127,7 +127,7 @@ fun VoiceSettingsCard(
                 IconButton(
                     onClick = {
                         TtsManager.resetToDefaults(context)
-                        Toast.makeText(context, "Voice reset to Arjun (Default)", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Voice reset to Male (Default)", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.size(32.dp)
                 ) {
@@ -163,7 +163,7 @@ fun VoiceSettingsCard(
                     )
                     Column {
                         Text(
-                            text = "CURRENT ACTIVE VOICE: ${selectedPreset.name.uppercase()} (${selectedPreset.gender.uppercase()})",
+                            text = "CURRENT ACTIVE VOICE: ${selectedPreset.gender.uppercase()} VOICE",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = CyberCyan,
@@ -181,9 +181,9 @@ fun VoiceSettingsCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // SECTION 1: 4 PRESET VOICES SELECTION
+            // SECTION 1: 2 NATURAL VOICES SELECTION
             Text(
-                text = "CHOOSE YOUR MAX VOICE (4 NATURAL PRESETS)",
+                text = "CHOOSE YOUR MAX VOICE (MALE / FEMALE)",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextMuted,
@@ -200,7 +200,7 @@ fun VoiceSettingsCard(
                         isSelected = isSelected,
                         onSelect = {
                             TtsManager.selectPresetVoice(context, preset.id)
-                            Toast.makeText(context, "${preset.name} voice selected", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "${preset.gender} voice selected", Toast.LENGTH_SHORT).show()
                         },
                         onSamplePlay = {
                             TtsManager.speakSampleForPreset(preset)
@@ -490,7 +490,7 @@ private fun PresetVoiceCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = preset.name,
+                            text = "${preset.gender} Voice",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary

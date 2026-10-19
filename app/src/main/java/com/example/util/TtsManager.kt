@@ -41,48 +41,34 @@ object TtsManager {
     private const val KEY_SELECTED_VOICE_NAME = "selected_preset_voice_name"
     private const val KEY_LANG_MODE = "tts_lang_mode"
 
-    // 4 NATURAL PRESET VOICES (2 Male, 2 Female)
-    val ARJUN = PresetVoice(
-        id = "arjun",
-        name = "Arjun",
+    // 2 NATURAL VOICES (1 Male, 1 Female)
+    val MALE = PresetVoice(
+        id = "male",
+        name = "Male",
         gender = "Male",
-        subtitle = "Male • Confident & Deep (Hindi/English)",
-        sampleText = "नमस्ते! मैं मैक्स हूँ। आपकी हर कमांड के लिए मैं हमेशा तैयार हूँ।",
-        preferredKeywords = listOf("-hid-", "male", "-end-", "-enc-", "hi-in-x-hid", "en-in-x-end"),
-        pitchMultiplier = 0.92f
+        subtitle = "Clear, Warm & Confident • Friendly & Pleasant",
+        sampleText = "नमस्ते! मैं मैक्स हूँ। आपकी हर बात सुनने और सहायता करने के लिए हमेशा तैयार हूँ।",
+        preferredKeywords = listOf("-hid-", "male", "-end-", "-enc-", "hi-in-x-hid", "en-in-x-end", "-cfa-"),
+        pitchMultiplier = 0.96f
     )
 
-    val ROHAN = PresetVoice(
-        id = "rohan",
-        name = "Rohan",
-        gender = "Male",
-        subtitle = "Male • Energetic & Casual (Hindi/English)",
-        sampleText = "हे दोस्त! मैं मैक्स हूँ, बताइए आज क्या काम करना है?",
-        preferredKeywords = listOf("-hic-", "-cfa-", "male", "-enc-", "hi-in-x-hic", "en-in-x-enc"),
-        pitchMultiplier = 1.05f
-    )
-
-    val ANANYA = PresetVoice(
-        id = "ananya",
-        name = "Ananya",
+    val FEMALE = PresetVoice(
+        id = "female",
+        name = "Female",
         gender = "Female",
-        subtitle = "Female • Sweet & Natural (Hindi/English)",
-        sampleText = "नमस्ते! मैं मैक्स हूँ। मैं आपके सारे काम चुटकी में कर सकती हूँ।",
-        preferredKeywords = listOf("-hie-", "-hia-", "female", "-ene-", "hi-in-x-hie", "hi-in-x-hia", "en-in-x-ene"),
-        pitchMultiplier = 1.12f
+        subtitle = "Articulate, Warm & Expressive • Friendly & Engaging",
+        sampleText = "नमस्ते! मैं मैक्स हूँ। कहिए, आज आपके लिए क्या कर सकती हूँ?",
+        preferredKeywords = listOf("-hie-", "-hia-", "female", "-ene-", "-enf-", "hi-in-x-hie", "hi-in-x-hia", "en-in-x-ene"),
+        pitchMultiplier = 1.06f
     )
 
-    val PRIYA = PresetVoice(
-        id = "priya",
-        name = "Priya",
-        gender = "Female",
-        subtitle = "Female • Calm & Professional (Hindi/English)",
-        sampleText = "नमस्ते, मैं मैक्स हूँ। आपका पर्सनल एआई असिस्टेंट।",
-        preferredKeywords = listOf("-hib-", "female", "-enf-", "-ena-", "hi-in-x-hib", "en-in-x-enf", "en-in-x-ena"),
-        pitchMultiplier = 1.00f
-    )
+    // Backward-compatible aliases for legacy references
+    val ARJUN = MALE
+    val ROHAN = MALE
+    val ANANYA = FEMALE
+    val PRIYA = FEMALE
 
-    val PRESET_VOICES = listOf(ARJUN, ROHAN, ANANYA, PRIYA)
+    val PRESET_VOICES = listOf(MALE, FEMALE)
 
     private var tts: TextToSpeech? = null
     private var isInitialized = false
@@ -112,7 +98,7 @@ object TtsManager {
     private val _speechRate = MutableStateFlow(1.02f)
     val speechRate: StateFlow<Float> = _speechRate.asStateFlow()
 
-    private val _selectedPreset = MutableStateFlow(ARJUN)
+    private val _selectedPreset = MutableStateFlow(MALE)
     val selectedPreset: StateFlow<PresetVoice> = _selectedPreset.asStateFlow()
 
     private val _languageMode = MutableStateFlow("auto") // "auto", "hi_IN", "en_IN"
@@ -194,8 +180,11 @@ object TtsManager {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _pitch.value = prefs.getFloat(KEY_PITCH, 1.0f).coerceIn(0.7f, 1.5f)
         _speechRate.value = prefs.getFloat(KEY_RATE, 1.02f).coerceIn(0.7f, 1.5f)
-        val savedPresetId = prefs.getString(KEY_SELECTED_PRESET_ID, ARJUN.id) ?: ARJUN.id
-        _selectedPreset.value = PRESET_VOICES.find { it.id == savedPresetId } ?: ARJUN
+        val savedPresetId = prefs.getString(KEY_SELECTED_PRESET_ID, MALE.id) ?: MALE.id
+        _selectedPreset.value = when (savedPresetId.lowercase()) {
+            "female", "ananya", "priya" -> FEMALE
+            else -> MALE
+        }
         _languageMode.value = prefs.getString(KEY_LANG_MODE, "auto") ?: "auto"
     }
 
@@ -211,16 +200,17 @@ object TtsManager {
     }
 
     fun selectPresetVoice(context: Context, presetId: String) {
-        val preset = PRESET_VOICES.find { it.id == presetId } ?: ARJUN
+        val preset = PRESET_VOICES.find { it.id.equals(presetId, ignoreCase = true) }
+            ?: (if (presetId.equals("female", ignoreCase = true) || presetId.equals("ananya", ignoreCase = true) || presetId.equals("priya", ignoreCase = true)) FEMALE else MALE)
         _selectedPreset.value = preset
         savePreferences(context)
 
         val resolvedVoice = resolveSystemVoiceForPreset(preset)
-        val voiceIdToLog = resolvedVoice?.name ?: preset.id
+        val voiceIdToLog = resolvedVoice?.name ?: "${preset.id}_natural_v1"
 
-        // Exact Required Debug Log: "VOICE_SELECTED: name=<>, voice_id=<>"
-        DebugLogger.logVoiceSelected(name = preset.name, voiceId = voiceIdToLog)
-        DebugLogger.logInfo("Preset voice selected: ${preset.name} (${preset.gender}), voiceId=$voiceIdToLog")
+        // Exact Required Debug Log: "VOICE_SELECTED: gender=<Male/Female>, voice_id=<>"
+        DebugLogger.logVoiceSelected(gender = preset.gender, voiceId = voiceIdToLog)
+        DebugLogger.logInfo("Voice selected: ${preset.gender} (${preset.name}), voiceId=$voiceIdToLog")
 
         applyAudioSettings()
     }
@@ -430,11 +420,11 @@ object TtsManager {
     fun resetToDefaults(context: Context) {
         _pitch.value = 1.0f
         _speechRate.value = 1.02f
-        _selectedPreset.value = ARJUN
+        _selectedPreset.value = MALE
         _languageMode.value = "auto"
         applyAudioSettings()
         savePreferences(context)
-        DebugLogger.logVoiceSelected(name = ARJUN.name, voiceId = ARJUN.id)
+        DebugLogger.logVoiceSelected(gender = MALE.gender, voiceId = MALE.id)
     }
 
     fun testSampleSpeech(context: Context, isHindi: Boolean = true) {

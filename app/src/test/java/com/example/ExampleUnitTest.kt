@@ -621,28 +621,26 @@ class ExampleUnitTest {
     fun presetVoices_stateAndLifecycleTest() {
         DebugLogger.clearLogs()
 
-        // 1. Verify TtsManager 4 Preset Voices (2 Male, 2 Female)
-        assertEquals(4, com.example.util.TtsManager.PRESET_VOICES.size)
+        // 1. Verify TtsManager 2 Voices (1 Male, 1 Female)
+        assertEquals(2, com.example.util.TtsManager.PRESET_VOICES.size)
         val maleVoices = com.example.util.TtsManager.PRESET_VOICES.filter { it.gender == "Male" }
         val femaleVoices = com.example.util.TtsManager.PRESET_VOICES.filter { it.gender == "Female" }
-        assertEquals(2, maleVoices.size)
-        assertEquals(2, femaleVoices.size)
-        assertTrue(maleVoices.any { it.name == "Arjun" })
-        assertTrue(maleVoices.any { it.name == "Rohan" })
-        assertTrue(femaleVoices.any { it.name == "Ananya" })
-        assertTrue(femaleVoices.any { it.name == "Priya" })
+        assertEquals(1, maleVoices.size)
+        assertEquals(1, femaleVoices.size)
+        assertTrue(maleVoices.any { it.name == "Male" })
+        assertTrue(femaleVoices.any { it.name == "Female" })
 
-        // 2. Exact required debug log formats
-        DebugLogger.logVoiceSelected("Arjun", "hi-in-x-hid-local")
-        DebugLogger.logVoiceSelected("Ananya", "hi-in-x-hie-local")
-        DebugLogger.logTtsCall("Arjun", "YouTube khul gaya")
-        DebugLogger.logTtsCall("Ananya", "WiFi on kar diya")
+        // 2. Exact required debug log formats: "VOICE_SELECTED: gender=<Male/Female>, voice_id=<>"
+        DebugLogger.logVoiceSelected("Male", "hi-in-x-hid-local")
+        DebugLogger.logVoiceSelected("Female", "hi-in-x-hie-local")
+        DebugLogger.logTtsCall("Male", "YouTube khul gaya")
+        DebugLogger.logTtsCall("Female", "WiFi on kar diya")
 
         val currentLogs = DebugLogger.logs.value
-        assertTrue(currentLogs.any { it.message == "VOICE_SELECTED: name=Arjun, voice_id=hi-in-x-hid-local" })
-        assertTrue(currentLogs.any { it.message == "VOICE_SELECTED: name=Ananya, voice_id=hi-in-x-hie-local" })
-        assertTrue(currentLogs.any { it.message == "TTS_CALL: using_voice=Arjun, text=YouTube khul gaya" })
-        assertTrue(currentLogs.any { it.message == "TTS_CALL: using_voice=Ananya, text=WiFi on kar diya" })
+        assertTrue(currentLogs.any { it.message == "VOICE_SELECTED: gender=Male, voice_id=hi-in-x-hid-local" })
+        assertTrue(currentLogs.any { it.message == "VOICE_SELECTED: gender=Female, voice_id=hi-in-x-hie-local" })
+        assertTrue(currentLogs.any { it.message == "TTS_CALL: using_voice=Male, text=YouTube khul gaya" })
+        assertTrue(currentLogs.any { it.message == "TTS_CALL: using_voice=Female, text=WiFi on kar diya" })
     }
 
     @Test

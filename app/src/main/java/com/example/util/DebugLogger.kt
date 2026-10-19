@@ -958,10 +958,14 @@ object DebugLogger {
     }
 
     /**
-     * Exact required format: "VOICE_SELECTED: name=<>, voice_id=<>"
+     * Exact required format: "VOICE_SELECTED: gender=<Male/Female>, voice_id=<>"
      */
-    fun logVoiceSelected(name: String, voiceId: String) {
-        val logLine = "VOICE_SELECTED: name=$name, voice_id=$voiceId"
+    fun logVoiceSelected(gender: String, voiceId: String) {
+        val normalizedGender = when (gender.lowercase()) {
+            "female", "ananya", "priya" -> "Female"
+            else -> "Male"
+        }
+        val logLine = "VOICE_SELECTED: gender=$normalizedGender, voice_id=$voiceId"
         safeLog(Log.INFO, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
