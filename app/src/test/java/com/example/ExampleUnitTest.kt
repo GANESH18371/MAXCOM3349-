@@ -1129,4 +1129,44 @@ class ExampleUnitTest {
         assertTrue(unknownAnnouncement.contains("Sir, ek anjaan number se call aa rahi hai", ignoreCase = true) || unknownAnnouncement.contains("Sir, एक अनजान नंबर से कॉल आ रही है"))
         assertFalse(unknownAnnouncement.contains("9876543210"))
     }
+
+    @Test
+    fun commandClassifier_recognizesDevanagariSearchVerbsAsTask() {
+        val sampleApps = listOf(
+            InstalledApp("YouTube", "com.google.android.youtube"),
+            InstalledApp("Instagram", "com.instagram.android"),
+            InstalledApp("Spotify", "com.spotify.music")
+        )
+
+        // "यूट्यूब पर बंजारा सॉन्ग सर्च करो" MUST be classified as TASK (not CONVERSATION)
+        val banjaraSongTask = com.example.manager.CommandClassifier.classify("यूट्यूब पर बंजारा सॉन्ग सर्च करो", sampleApps)
+        assertTrue("यूट्यूब पर बंजारा सॉन्ग सर्च करो should be TASK", banjaraSongTask.isTask)
+        assertEquals("TASK", banjaraSongTask.classifiedAs)
+
+        // Hinglish "YouTube par song search karo"
+        val youtubeSearchHinglish = com.example.manager.CommandClassifier.classify("YouTube par song search karo", sampleApps)
+        assertTrue("YouTube par song search karo should be TASK", youtubeSearchHinglish.isTask)
+        assertEquals("TASK", youtubeSearchHinglish.classifiedAs)
+
+        // "Instagram par travel reels dhoondo"
+        val instaDhoondo = com.example.manager.CommandClassifier.classify("Instagram par travel reels dhoondo", sampleApps)
+        assertTrue("Instagram par travel reels dhoondo should be TASK", instaDhoondo.isTask)
+        assertEquals("TASK", instaDhoondo.classifiedAs)
+
+        // Devanagari "इंस्टाग्राम पर ढूंढो"
+        val instaDhoondoHindi = com.example.manager.CommandClassifier.classify("इंस्टाग्राम पर रील ढूंढो", sampleApps)
+        assertTrue("इंस्टाग्राम पर रील ढूंढो should be TASK", instaDhoondoHindi.isTask)
+        assertEquals("TASK", instaDhoondoHindi.classifiedAs)
+    }
+
+    @Test
+    fun geminiAttemptTimeoutMs_logFormatTest() {
+        DebugLogger.clearLogs()
+        DebugLogger.logGeminiAttemptTimeoutMs(attempt = 1, configuredTimeoutMs = 8000L, actualTimeTakenMs = 8120L)
+        DebugLogger.logGeminiAttemptTimeoutMs(attempt = 2, configuredTimeoutMs = 8000L, actualTimeTakenMs = 7950L)
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any { it.message == "GEMINI_ATTEMPT_TIMEOUT_MS: attempt=1, configured_timeout=8000ms, actual_time_taken=8120ms" })
+        assertTrue(logs.any { it.message == "GEMINI_ATTEMPT_TIMEOUT_MS: attempt=2, configured_timeout=8000ms, actual_time_taken=7950ms" })
+    }
 }

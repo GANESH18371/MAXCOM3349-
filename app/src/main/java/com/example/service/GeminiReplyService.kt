@@ -11,6 +11,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import android.os.SystemClock
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -36,9 +37,10 @@ object GeminiReplyService {
     private const val STREAM_URL = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL_NAME:streamGenerateContent?alt=sse"
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
         .build()
 
     suspend fun generateAutoReply(sender: String, messageText: String): String = withContext(Dispatchers.IO) {
@@ -326,10 +328,27 @@ object GeminiReplyService {
             var responseBody: String? = null
             var lastHttpCode = 0
             var attempts = 0
-            val maxRetries = 3
+            val maxRetries = 2
+            val perAttemptTimeoutMs = 8_000L
+            val totalBudgetMs = 16_000L
+            val overallStart = SystemClock.elapsedRealtime()
+
+            val callHttpClient = okHttpClient.newBuilder()
+                .connectTimeout(8, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS)
+                .writeTimeout(8, TimeUnit.SECONDS)
+                .callTimeout(9, TimeUnit.SECONDS)
+                .build()
 
             while (attempts < maxRetries) {
+                val totalElapsedSoFar = SystemClock.elapsedRealtime() - overallStart
+                if (totalElapsedSoFar >= totalBudgetMs) {
+                    DebugLogger.logInfo("Gemini total time budget reached (${totalElapsedSoFar}ms). Giving up immediately to prevent long wait.")
+                    break
+                }
+
                 attempts++
+                val attemptStart = SystemClock.elapsedRealtime()
                 try {
                     val requestBody = payloadStr.toRequestBody("application/json".toMediaType())
                     val request = Request.Builder()
@@ -338,7 +357,10 @@ object GeminiReplyService {
                         .build()
 
                     response?.close()
-                    response = okHttpClient.newCall(request).execute()
+                    response = callHttpClient.newCall(request).execute()
+                    val actualTimeTaken = SystemClock.elapsedRealtime() - attemptStart
+                    DebugLogger.logGeminiAttemptTimeoutMs(attempts, perAttemptTimeoutMs, actualTimeTaken)
+
                     lastHttpCode = response.code
                     responseBody = response.body?.string()
 
@@ -359,31 +381,37 @@ object GeminiReplyService {
                             .url(fallbackUrl)
                             .post(fallbackPayload.toRequestBody("application/json".toMediaType()))
                             .build()
-                        response = okHttpClient.newCall(fallbackRequest).execute()
+                        response = callHttpClient.newCall(fallbackRequest).execute()
                         lastHttpCode = response.code
                         responseBody = response.body?.string()
                     }
 
-                    // BUG 1 FIX 2: 503 (temporary overload) retry with backoff (1-2s wait, 2-3 retries)
+                    // 503 (temporary overload) retry with backoff (1.2s wait, max 2 attempts)
                     if (response.code == 503) {
                         DebugLogger.logGeminiApiCallStatus(false, 503)
                         DebugLogger.logInfo("Gemini 503 Overloaded. Retrying with backoff (attempt $attempts of $maxRetries)...")
                         if (attempts < maxRetries) {
-                            val backoffMs = attempts * 1200L // 1.2s, 2.4s
-                            kotlinx.coroutines.delay(backoffMs)
-                            continue
+                            val elapsedNow = SystemClock.elapsedRealtime() - overallStart
+                            if (elapsedNow + 1200L < totalBudgetMs) {
+                                kotlinx.coroutines.delay(1200L)
+                                continue
+                            }
                         }
                     }
 
                     // Success or non-retryable response
                     break
                 } catch (e: Exception) {
+                    val actualTimeTaken = SystemClock.elapsedRealtime() - attemptStart
+                    DebugLogger.logGeminiAttemptTimeoutMs(attempts, perAttemptTimeoutMs, actualTimeTaken)
                     DebugLogger.logInfo("Gemini attempt $attempts network exception: ${e.message}")
-                    if (attempts < maxRetries) {
-                        kotlinx.coroutines.delay(1000L * attempts)
-                    } else {
-                        throw e
+
+                    val elapsedNow = SystemClock.elapsedRealtime() - overallStart
+                    if (elapsedNow >= totalBudgetMs || attempts >= maxRetries) {
+                        DebugLogger.logInfo("Gemini total time budget reached (${elapsedNow}ms). Giving up immediately to prevent long wait.")
+                        break
                     }
+                    kotlinx.coroutines.delay(1200L)
                 }
             }
 
@@ -476,7 +504,7 @@ object GeminiReplyService {
                     return@withContext GeminiComprehensionResult(
                         understoodIntent = "Gemini server busy (503)",
                         actions = listOf(ComprehensionAction("answer", "")),
-                        replyText = "abhi connect nahi ho pa raha, dobara try karein",
+                        replyText = "Sir, server busy hai, thodi der me dobara try karein.",
                         isRealGeminiResponse = false
                     )
                 }
@@ -498,9 +526,9 @@ object GeminiReplyService {
 
             DebugLogger.logCommandUnderstanding(userQuery, "CONVERSATION", 1)
             return@withContext GeminiComprehensionResult(
-                understoodIntent = "Gemini request failed",
+                understoodIntent = "Gemini request failed / timeout",
                 actions = listOf(ComprehensionAction("answer", "")),
-                replyText = "abhi connect nahi ho pa raha, dobara try karein",
+                replyText = "Sir, network slow hai, dobara try karein.",
                 isRealGeminiResponse = false
             )
         }
@@ -683,10 +711,13 @@ object GeminiReplyService {
         val lower = userQuery.lowercase()
 
         // 1. In-app and Compound multi-intent local detection ("YouTube khol kar yeh gana search karo", "YouTube par gana search karo", etc.)
-        val appList = (listOf("youtube", "spotify", "instagram", "chrome", "whatsapp", "zomato", "swiggy", "maps", "music") + knownApps.map { it.lowercase() }).distinct()
+        val appList = (listOf("youtube", "यूट्यूब", "spotify", "स्पॉटिफ़ाई", "instagram", "इंस्टाग्राम", "chrome", "क्रोम", "whatsapp", "व्हाट्सएप", "zomato", "swiggy", "maps", "music") + knownApps.map { it.lowercase() }).distinct()
         val mentionedApp = appList.firstOrNull { lower.contains(it) }
-        val hasInAppAction = listOf("search", "play", "chalao", "subscribe", "unsubscribe", "follow", "unfollow", "lagao", "bajao", "dhoondo", "khojo").any { lower.contains(it) }
-        val connectorRegex = Regex(" aur | and | phir | fir | tatha | then | khol kar | kholkar | khol ke | kholke | open karke | open kar ")
+        val hasInAppAction = listOf(
+            "search", "सर्च", "play", "प्ले", "chalao", "चलाओ", "subscribe", "सब्सक्राइब", "follow", "फॉलो",
+            "lagao", "लगाओ", "bajao", "बजाओ", "dhoondo", "ढूंढो", "khojo", "खोजो", "दिखाओ"
+        ).any { lower.contains(it) }
+        val connectorRegex = Regex(" aur | and | phir | fir | tatha | then | khol kar | kholkar | khol ke | kholke | open karke | open kar | और ")
 
         if (connectorRegex.containsMatchIn(lower)) {
             val parts = lower.split(connectorRegex)
@@ -704,13 +735,13 @@ object GeminiReplyService {
 
                 if (mentionedApp != null) {
                     val appName = when (mentionedApp.lowercase()) {
-                        "youtube" -> "YouTube"
-                        "whatsapp" -> "WhatsApp"
-                        "instagram" -> "Instagram"
+                        "youtube", "यूट्यूब" -> "YouTube"
+                        "whatsapp", "व्हाट्सएप" -> "WhatsApp"
+                        "instagram", "इंस्टाग्राम" -> "Instagram"
                         "gpay" -> "GPay"
                         "phonepe" -> "PhonePe"
-                        "spotify" -> "Spotify"
-                        "chrome" -> "Chrome"
+                        "spotify", "स्पॉटिफ़ाई" -> "Spotify"
+                        "chrome", "क्रोम" -> "Chrome"
                         else -> mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
                     }
                     val targetAction = act2 ?: act1 ?: ComprehensionAction("in_app_action", userQuery)
@@ -721,15 +752,15 @@ object GeminiReplyService {
                     )
                 }
             }
-        } else if (mentionedApp != null && (hasInAppAction || lower.contains("search") || lower.contains("play") || lower.contains("chalao") || lower.contains("subscribe") || lower.contains("follow") || lower.contains("lagao"))) {
+        } else if (mentionedApp != null && (hasInAppAction || lower.contains("search") || lower.contains("सर्च") || lower.contains("play") || lower.contains("chalao") || lower.contains("चलाओ") || lower.contains("subscribe") || lower.contains("follow") || lower.contains("lagao"))) {
             val appName = when (mentionedApp.lowercase()) {
-                "youtube" -> "YouTube"
-                "whatsapp" -> "WhatsApp"
-                "instagram" -> "Instagram"
+                "youtube", "यूट्यूब" -> "YouTube"
+                "whatsapp", "व्हाट्सएप" -> "WhatsApp"
+                "instagram", "इंस्टाग्राम" -> "Instagram"
                 "gpay" -> "GPay"
                 "phonepe" -> "PhonePe"
-                "spotify" -> "Spotify"
-                "chrome" -> "Chrome"
+                "spotify", "स्पॉटिफ़ाई" -> "Spotify"
+                "chrome", "क्रोम" -> "Chrome"
                 else -> mentionedApp.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
             }
             return GeminiComprehensionResult(

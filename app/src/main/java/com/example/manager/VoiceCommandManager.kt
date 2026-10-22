@@ -232,14 +232,28 @@ class VoiceCommandManager(private val context: Context) {
 
     private fun isMultiIntentCommand(text: String): Boolean {
         val lower = text.lowercase(Locale.getDefault())
-        val connectors = listOf(" aur ", " and ", " phir ", " fir ", " tatha ", " then ", " khol kar ", " kholkar ", " khol ke ", " kholke ", " open karke ", " open kar ")
+        val connectors = listOf(
+            " aur ", " and ", " phir ", " fir ", " tatha ", " then ",
+            " khol kar ", " kholkar ", " khol ke ", " kholke ", " open karke ", " open kar ",
+            " और "
+        )
         if (connectors.any { lower.contains(it) }) return true
 
-        // Compound in-app action commands like "YouTube par [gana] search karo aur lagao", "Instagram par follow karo", "YouTube khol kar gana search karo"
-        val inAppActions = listOf("search", "subscribe", "unsubscribe", "follow", "unfollow", "like", "lagao", "chalao", "play", "bajao", "dhoondo", "khojo")
+        // Compound in-app action commands like "YouTube par [gana] search karo aur lagao", "यूट्यूब पर बंजारा सॉन्ग सर्च करो", "Instagram par follow karo"
+        val inAppActions = listOf(
+            "search", "सर्च", "subscribe", "सब्सक्राइब", "follow", "फॉलो", "like", "लाइक",
+            "lagao", "लगाओ", "chalao", "चलाओ", "play", "प्ले", "bajao", "बजाओ",
+            "dhoondo", "ढूंढो", "khojo", "खोजो", "dikhao", "दिखाओ"
+        )
         val hasInAppAction = inAppActions.any { lower.contains(it) }
-        val hasAppPrefix = listOf("par ", "pe ", "me ", "mein ", "mai ", "khol kar ", "kholkar ", "khol ke ", "kholke ", "open karke ", "open kar ").any { lower.contains(it) }
-        val commonApps = listOf("youtube", "whatsapp", "instagram", "spotify", "chrome", "google", "maps", "music")
+        val hasAppPrefix = listOf(
+            "par ", "pe ", "me ", "mein ", "mai ", " पर ", " पे ", " में ",
+            "khol kar ", "kholkar ", "khol ke ", "kholke ", "open karke ", "open kar "
+        ).any { lower.contains(it) }
+        val commonApps = listOf(
+            "youtube", "यूट्यूब", "whatsapp", "व्हाट्सएप", "instagram", "इंस्टाग्राम",
+            "spotify", "स्पॉटिफ़ाई", "chrome", "क्रोम", "google", "गूगल", "maps", "music"
+        )
         val hasAppMention = commonApps.any { lower.contains(it) }
         return (hasInAppAction && (hasAppPrefix || hasAppMention))
     }
@@ -882,8 +896,13 @@ class VoiceCommandManager(private val context: Context) {
         val regex = Regex(" aur | and | phir | fir | tatha | then | khol kar | kholkar | khol ke | kholke | open karke | open kar ")
         val isCompoundConnector = regex.containsMatchIn(lower)
 
-        val hasInAppAction = listOf("search", "play", "chalao", "chala do", "bajao", "baja do", "lagao", "dhoondo", "khojo").any { lower.contains(it) }
-        val hasAppPrefix = lower.contains(" par ") || lower.contains(" pe ") || lower.contains(" me ") || lower.contains(" mein ")
+        val hasInAppAction = listOf(
+            "search", "सर्च", "play", "प्ले", "chalao", "चलाओ", "chala do", "chala de",
+            "bajao", "बजाओ", "baja do", "lagao", "लगाओ", "laga do", "dhoondo", "ढूंढो",
+            "khojo", "खोजो", "dikhao", "दिखाओ"
+        ).any { lower.contains(it) }
+        val hasAppPrefix = lower.contains(" par ") || lower.contains(" pe ") || lower.contains(" me ") || lower.contains(" mein ") ||
+                lower.contains(" पर ") || lower.contains(" पे ") || lower.contains(" में ")
         val isDirectInApp = !isCompoundConnector && hasInAppAction && hasAppPrefix
 
         if (!isCompoundConnector && !isDirectInApp) return false
@@ -932,25 +951,25 @@ class VoiceCommandManager(private val context: Context) {
             return true
         }
 
-        // Sequential multi-intent or direct in-app action (e.g. "YouTube par Arijit Singh search karo aur play karo", "Instagram par travel reels search karo")
+        // Sequential multi-intent or direct in-app action (e.g. "YouTube par Arijit Singh search karo aur play karo", "यूट्यूब पर बंजारा सॉन्ग सर्च करो", "Instagram par travel reels search karo")
         val isInAppAction2 = isDirectInApp || GenericAppControlManager.isMediaCommand(part2.lowercase()) ||
                 part2.lowercase().let {
-                    it.contains("gana") || it.contains("gaana") || it.contains("song") ||
-                    it.contains("chalao") || it.contains("play") || it.contains("bajao") ||
-                    it.contains("search") || it.contains("subscribe") || it.contains("unsubscribe") ||
-                    it.contains("follow") || it.contains("unfollow") || it.contains("like") || it.contains("lagao") ||
-                    it.contains("dhoondo") || it.contains("khojo")
+                    it.contains("gana") || it.contains("गाना") || it.contains("gaana") || it.contains("song") || it.contains("सॉन्ग") ||
+                    it.contains("chalao") || it.contains("चलाओ") || it.contains("play") || it.contains("प्ले") || it.contains("bajao") || it.contains("बजाओ") ||
+                    it.contains("search") || it.contains("सर्च") || it.contains("subscribe") || it.contains("सब्सक्राइब") ||
+                    it.contains("follow") || it.contains("फॉलो") || it.contains("like") || it.contains("लाइक") || it.contains("lagao") || it.contains("लगाओ") ||
+                    it.contains("dhoondo") || it.contains("ढूंढो") || it.contains("khojo") || it.contains("खोजो")
                 }
 
         val resolvedApp = app1
             ?: apps.find { lower.contains(it.name.lowercase()) }
-            ?: apps.find { it.name.contains("youtube", ignoreCase = true) && lower.contains("youtube") }
-            ?: apps.find { it.name.contains("instagram", ignoreCase = true) && lower.contains("instagram") }
-            ?: apps.find { it.name.contains("spotify", ignoreCase = true) && lower.contains("spotify") }
-            ?: if (lower.contains("youtube")) InstalledApp("YouTube", "com.google.android.youtube")
-               else if (lower.contains("spotify")) InstalledApp("Spotify", "com.spotify.music")
-               else if (lower.contains("instagram")) InstalledApp("Instagram", "com.instagram.android")
-               else if (lower.contains("whatsapp")) InstalledApp("WhatsApp", "com.whatsapp")
+            ?: apps.find { it.name.contains("youtube", ignoreCase = true) && (lower.contains("youtube") || lower.contains("यूट्यूब")) }
+            ?: apps.find { it.name.contains("instagram", ignoreCase = true) && (lower.contains("instagram") || lower.contains("इंस्टाग्राम")) }
+            ?: apps.find { it.name.contains("spotify", ignoreCase = true) && (lower.contains("spotify") || lower.contains("स्पॉटिफ़ाई")) }
+            ?: if (lower.contains("youtube") || lower.contains("यूट्यूब")) InstalledApp("YouTube", "com.google.android.youtube")
+               else if (lower.contains("spotify") || lower.contains("स्पॉटिफ़ाई")) InstalledApp("Spotify", "com.spotify.music")
+               else if (lower.contains("instagram") || lower.contains("इंस्टाग्राम")) InstalledApp("Instagram", "com.instagram.android")
+               else if (lower.contains("whatsapp") || lower.contains("व्हाट्सएप")) InstalledApp("WhatsApp", "com.whatsapp")
                else null
 
         if (resolvedApp != null && isInAppAction2) {

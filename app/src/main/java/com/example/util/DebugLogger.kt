@@ -889,6 +889,15 @@ object DebugLogger {
         addEntry(logLine, LogType.INFO)
     }
 
+    /**
+     * Exact required format: "GEMINI_ATTEMPT_TIMEOUT_MS: attempt=<1/2/3>, configured_timeout=<>, actual_time_taken=<>"
+     */
+    fun logGeminiAttemptTimeoutMs(attempt: Int, configuredTimeoutMs: Long, actualTimeTakenMs: Long) {
+        val logLine = "GEMINI_ATTEMPT_TIMEOUT_MS: attempt=$attempt, configured_timeout=${configuredTimeoutMs}ms, actual_time_taken=${actualTimeTakenMs}ms"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
 
     /**
      * Exact required format: "UPLOADED_VOICE_QUALITY_CHECK: duration=<>, format=<>, accepted=<true/false>"

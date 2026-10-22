@@ -61,6 +61,30 @@ object CommandClassifier {
         "chalu karo", "chalu kar", "chalu kar do", "चालू करो", "चालू कर"
     )
 
+    // In-app imperative action verbs (Search, Play, Media, Social) in Devanagari, Hinglish & English
+    val IN_APP_ACTION_VERBS = listOf(
+        // Hindi / Devanagari search & find verbs
+        "सर्च करो", "सर्च कर दो", "सर्च कर", "सर्च करिए", "सर्च कीजिए", "सर्च",
+        "ढूंढो", "ढूंढ", "ढूंढ कर", "ढूंढिए", "ढूंढ दो", "ढूंढ दे",
+        "खोजो", "खोज", "खोजिए", "खोज दो", "खोज कर",
+        "दिखाओ", "दिखाइए", "दिखा दो", "दिखा",
+        // Hindi / Devanagari play & media verbs
+        "प्ले करो", "प्ले कर", "प्ले", "चलाओ", "चला", "चला दो", "चलाइए",
+        "बजाओ", "बजा", "बजा दो", "लगाओ", "लगा", "लगा दो", "सुनाओ", "सुना", "सुना दो",
+        // Hindi / Devanagari social verbs
+        "सब्सक्राइब करो", "सब्सक्राइब", "फॉलो करो", "फॉलो", "लाइक करो", "लाइक", "शेयर करो", "शेयर",
+        // English / Hinglish search verbs
+        "search karo", "search kar do", "search kar", "search kariye", "search kijiye", "search",
+        "dhoondo", "dhoond do", "dhoond de", "dhoond", "dhoondh", "dhoondho",
+        "khojo", "khoj", "khoj do", "dikhao", "dikha do", "dikha",
+        // English / Hinglish play verbs
+        "play karo", "play kar do", "play kar", "play", "bajao", "baja do", "baja",
+        "lagao", "laga do", "laga", "sunao", "suna do", "suna",
+        // Social verbs
+        "subscribe karo", "subscribe kar do", "subscribe", "follow karo", "follow kar do", "follow",
+        "like karo", "like", "share karo", "share", "unfollow", "unsubscribe"
+    )
+
     // Narrative, past-tense, and storytelling markers indicating conversational context
     private val CONVERSATIONAL_STORY_MARKERS = listOf(
         "dekha tha", "dekhi thi", "dekhe the", "suna tha", "suni thi", "sune the",
@@ -120,7 +144,20 @@ object CommandClassifier {
         val matchedApp = AppOpenManager.fuzzyMatchApp(trimmed, installedApps)
         val matchedAppKeyword = if (matchedApp != null) matchedApp.name else null
 
-        val COMMON_APPS = listOf("youtube", "whatsapp", "instagram", "spotify", "chrome", "google", "maps", "camera", "gallery", "settings", "music", "zomato", "swiggy", "paytm", "gpay", "phonepe", "gmail", "telegram", "uber", "ola", "twitter", "facebook")
+        val COMMON_APPS = listOf(
+            "youtube", "यूट्यूब", "yt",
+            "whatsapp", "व्हाट्सएप", "व्हाट्सऐप", "वाट्सएप",
+            "instagram", "इंस्टाग्राम", "insta",
+            "spotify", "स्पॉटिफ़ाई", "स्पॉटिफाई",
+            "chrome", "क्रोम",
+            "google", "गूगल",
+            "maps", "मैप्स", "नक्शा",
+            "camera", "कैमरा",
+            "gallery", "गैलरी",
+            "settings", "सेटिंग्स",
+            "music", "म्यूजिक", "गाना",
+            "zomato", "swiggy", "paytm", "gpay", "phonepe", "gmail", "telegram", "uber", "ola", "twitter", "facebook"
+        )
         val fallbackAppMentioned = COMMON_APPS.firstOrNull { lower.contains(it) }
 
         val anyKeywordMentioned = matchedHardwareKeyword ?: matchedAppKeyword ?: fallbackAppMentioned
@@ -136,18 +173,23 @@ object CommandClassifier {
         val hasAppLaunchVerb = APP_LAUNCH_VERBS.any { lower.contains(it) }
 
         // 4. Multi-intent / Compound command check
-        val hasInAppActionVerb = listOf("search", "play", "subscribe", "unsubscribe", "follow", "unfollow", "like", "lagao", "bajao", "dhoondo", "khojo").any { lower.contains(it) }
-        val compoundConnectors = listOf(" aur ", " and ", " phir ", " fir ", " tatha ", " then ", " khol kar ", " kholkar ", " khol ke ", " kholke ", " open karke ", " open kar ", " par ", " pe ")
+        val hasInAppActionVerb = IN_APP_ACTION_VERBS.any { lower.contains(it) }
+        val compoundConnectors = listOf(
+            " aur ", " and ", " phir ", " fir ", " tatha ", " then ",
+            " khol kar ", " kholkar ", " khol ke ", " kholke ", " open karke ", " open kar ",
+            " par ", " pe ", " me ", " mein ", " और ", " पर ", " पे ", " में "
+        )
         val hasCompoundConnector = compoundConnectors.any { lower.contains(it) }
 
         val isCompound = (hasCompoundConnector && (hasHardwareAction || hasAppLaunchVerb || hasInAppActionVerb)) ||
                 (anyKeywordMentioned != null && hasInAppActionVerb)
 
         if (isCompound && !isConversationalContext) {
+            val taskLabel = if (anyKeywordMentioned != null) "In-app action / compound command for '$anyKeywordMentioned'" else "Multi-intent compound in-app command"
             return ClassificationResult(
                 isTask = true,
                 classifiedAs = "TASK",
-                confidence = "Multi-intent compound in-app command with action verbs",
+                confidence = taskLabel,
                 falsePositiveRisk = "none",
                 taskType = "COMPOUND_TASK"
             )
@@ -269,7 +311,7 @@ object CommandClassifier {
         // Case B: Direct app name spoken alone (<= 3 words, e.g. "YouTube", "यूट्यूब", "WhatsApp", "Chrome")
         val words = trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }
         val isDirectAppNameAlone = matchedApp != null && words.size <= 2 && !hasChitchatMarker && !hasStoryMarker
-        val hasInAppActionVerbForApp = listOf("search", "play", "subscribe", "unsubscribe", "follow", "unfollow", "like", "lagao", "bajao", "dhoondo", "khojo").any { lower.contains(it) }
+        val hasInAppActionVerbForApp = IN_APP_ACTION_VERBS.any { lower.contains(it) }
         if ((matchedApp != null || fallbackAppMentioned != null) && hasInAppActionVerbForApp) {
             val appLabel = matchedApp?.name ?: fallbackAppMentioned?.replaceFirstChar { it.uppercase() } ?: "App"
             return ClassificationResult(
