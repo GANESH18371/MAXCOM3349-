@@ -158,7 +158,7 @@ fun JarvisArcReactor(
                 )
             )
             .border(1.dp, JarvisCardBorder, RoundedCornerShape(20.dp))
-            .padding(18.dp)
+            .padding(14.dp)
             .testTag("jarvis_arc_reactor_card")
     ) {
         Column(
@@ -184,10 +184,12 @@ fun JarvisArcReactor(
                     Text(
                         text = "NEURAL ARC-REACTOR",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = JarvisTextPrimary,
-                        letterSpacing = 1.2.sp
+                        letterSpacing = 1.sp,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
 
@@ -203,12 +205,14 @@ fun JarvisArcReactor(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
-                        color = activeColor
+                        color = activeColor,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Central Interactive Arc Reactor Canvas
             Box(

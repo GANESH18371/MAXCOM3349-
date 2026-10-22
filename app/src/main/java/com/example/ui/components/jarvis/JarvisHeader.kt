@@ -82,7 +82,7 @@ fun JarvisHeader(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 8.dp)
+            .padding(horizontal = 2.dp, vertical = 2.dp)
     ) {
         // Top HUD Metadata Row (Tech Timestamp & Protocol)
         Row(
@@ -92,35 +92,39 @@ fun JarvisHeader(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
+                        .size(6.dp)
                         .scale(pulseAlpha)
                         .background(JarvisNeonGreen, CircleShape)
                 )
                 Text(
                     text = "SYS: ACTIVE // HUD PROTOCOL v3.8",
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
+                    fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = JarvisNeonGreen,
-                    letterSpacing = 1.sp
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
 
             Text(
                 text = if (currentTimeString.isNotEmpty()) "$currentDateString // $currentTimeString" else "SYNCHRONIZING...",
                 fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp,
+                fontSize = 8.5.sp,
                 fontWeight = FontWeight.Medium,
                 color = JarvisTextSecondary,
-                letterSpacing = 0.5.sp
+                letterSpacing = 0.3.sp,
+                maxLines = 1,
+                softWrap = false
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         // Main Title & Greeting Box
         Row(
@@ -132,43 +136,49 @@ fun JarvisHeader(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "M A X",
-                        fontSize = 32.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
                         color = JarvisCyan,
-                        letterSpacing = 6.sp
+                        letterSpacing = 3.sp,
+                        maxLines = 1,
+                        softWrap = false
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Box(
                         modifier = Modifier
                             .background(
                                 JarvisCyan.copy(alpha = 0.15f),
-                                RoundedCornerShape(4.dp)
+                                RoundedCornerShape(3.dp)
                             )
-                            .border(1.dp, JarvisCyan.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .border(1.dp, JarvisCyan.copy(alpha = 0.4f), RoundedCornerShape(3.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
                     ) {
                         Text(
                             text = "AI CORE",
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 9.sp,
+                            fontSize = 7.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = JarvisCyan,
-                            letterSpacing = 1.sp
+                            letterSpacing = 0.8.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
 
                 Text(
                     text = "\"I'm online, Sir. All systems fully operational.\"",
-                    fontSize = 13.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                     color = JarvisTextPrimary,
-                    letterSpacing = 0.5.sp
+                    letterSpacing = 0.2.sp,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
 
-            // Tech Status Badge
+            // Tech Status Badge (Key & Security)
             Box(
                 modifier = Modifier
                     .background(
@@ -178,32 +188,36 @@ fun JarvisHeader(
                                 JarvisCyan.copy(alpha = 0.1f)
                             )
                         ),
-                        RoundedCornerShape(8.dp)
+                        RoundedCornerShape(6.dp)
                     )
-                    .border(1.dp, JarvisCyan.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .border(1.dp, JarvisCyan.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "SECURITY",
+                        text = "NEURAL KEY",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 8.sp,
+                        fontSize = 7.sp,
                         fontWeight = FontWeight.Bold,
                         color = JarvisTextDim,
-                        letterSpacing = 1.sp
+                        letterSpacing = 0.5.sp,
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Text(
-                        text = "ENCRYPTED",
+                        text = "ACTIVE // AES-256",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
+                        fontSize = 8.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = JarvisCyan
+                        color = JarvisCyan,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         // Glowing divider line
         Box(

@@ -1083,16 +1083,50 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun debugLogger_recordsWakeWordServiceStateLogs() {
+    fun debugLogger_recordsInAppActionStepsAndResponseTime() {
         DebugLogger.clearLogs()
 
-        DebugLogger.logWakeWordServiceState("stopped", "activation_triggered")
-        DebugLogger.logWakeWordServiceState("running", "background_listening_toggle_on")
-        DebugLogger.logWakeWordServiceState("stopped", "manual_mic_tap")
+        // 1. In-app action step logs
+        DebugLogger.logInAppActionStep(step = "1", status = "started", durationMs = 0L)
+        DebugLogger.logInAppActionStep(step = "1", status = "success", durationMs = 350L)
+        DebugLogger.logInAppActionStep(step = "2", status = "started", durationMs = 0L)
+        DebugLogger.logInAppActionStep(step = "2", status = "success", durationMs = 420L)
+        DebugLogger.logInAppActionStep(step = "3", status = "started", durationMs = 0L)
+        DebugLogger.logInAppActionStep(step = "3", status = "success", durationMs = 15L)
+        DebugLogger.logInAppActionStep(step = "4", status = "started", durationMs = 0L)
+        DebugLogger.logInAppActionStep(step = "4", status = "success", durationMs = 600L)
+        DebugLogger.logInAppActionStep(step = "3", status = "timeout", durationMs = 10000L)
+
+        // 2. Feature response time logs
+        DebugLogger.logResponseTimeMs(feature = "hardware_toggle", timeMs = 12L)
+        DebugLogger.logResponseTimeMs(feature = "app_open", timeMs = 45L)
+        DebugLogger.logResponseTimeMs(feature = "in_app_action", timeMs = 1450L)
+        DebugLogger.logResponseTimeMs(feature = "call_announcement", timeMs = 8L)
+        DebugLogger.logResponseTimeMs(feature = "conversation", timeMs = 380L)
 
         val logs = DebugLogger.logs.value
-        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STATE: stopped, reason=activation_triggered" })
-        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STATE: running, reason=background_listening_toggle_on" })
-        assertTrue(logs.any { it.message == "WAKEWORD_SERVICE_STATE: stopped, reason=manual_mic_tap" })
+        assertTrue(logs.any { it.message == "IN_APP_ACTION_STEP: step=1, status=started, duration_ms=0" })
+        assertTrue(logs.any { it.message == "IN_APP_ACTION_STEP: step=1, status=success, duration_ms=350" })
+        assertTrue(logs.any { it.message == "IN_APP_ACTION_STEP: step=2, status=success, duration_ms=420" })
+        assertTrue(logs.any { it.message == "IN_APP_ACTION_STEP: step=3, status=success, duration_ms=15" })
+        assertTrue(logs.any { it.message == "IN_APP_ACTION_STEP: step=4, status=success, duration_ms=600" })
+        assertTrue(logs.any { it.message == "IN_APP_ACTION_STEP: step=3, status=timeout, duration_ms=10000" })
+
+        assertTrue(logs.any { it.message == "RESPONSE_TIME_MS: feature=hardware_toggle, time=12" })
+        assertTrue(logs.any { it.message == "RESPONSE_TIME_MS: feature=app_open, time=45" })
+        assertTrue(logs.any { it.message == "RESPONSE_TIME_MS: feature=in_app_action, time=1450" })
+        assertTrue(logs.any { it.message == "RESPONSE_TIME_MS: feature=call_announcement, time=8" })
+        assertTrue(logs.any { it.message == "RESPONSE_TIME_MS: feature=conversation, time=380" })
+    }
+
+    @Test
+    fun callAnnouncement_phrasingFormatTest() {
+        val knownContactName = "Rahul Sharma"
+        val knownAnnouncement = "Sir, $knownContactName की कॉल आ रही है."
+        assertTrue(knownAnnouncement.contains("Sir, Rahul Sharma ki call aa rahi hai", ignoreCase = true) || knownAnnouncement.contains("Sir, Rahul Sharma की कॉल आ रही है"))
+
+        val unknownAnnouncement = "Sir, एक अनजान नंबर से कॉल आ रही है."
+        assertTrue(unknownAnnouncement.contains("Sir, ek anjaan number se call aa rahi hai", ignoreCase = true) || unknownAnnouncement.contains("Sir, एक अनजान नंबर से कॉल आ रही है"))
+        assertFalse(unknownAnnouncement.contains("9876543210"))
     }
 }

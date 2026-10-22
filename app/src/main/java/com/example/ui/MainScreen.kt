@@ -268,7 +268,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 14.dp, vertical = 6.dp)
         ) {
             when (selectedTab) {
                 0 -> {
@@ -281,7 +281,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     // Accessibility Guidance Banner if inactive
                     if (!isAccessibilityActive) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         AccessibilitySetupCard(
                             onEnableClick = {
                                 MaxAccessibilityService.openAccessibilitySettings(context)
@@ -289,7 +289,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     // 2. Central Animated Arc Reactor Visual
                     JarvisArcReactor(

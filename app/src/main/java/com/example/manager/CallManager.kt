@@ -99,6 +99,11 @@ object CallManager {
             Manifest.permission.READ_PHONE_STATE
         ) == PackageManager.PERMISSION_GRANTED
 
+        val readCallLog = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CALL_LOG
+        ) == PackageManager.PERMISSION_GRANTED
+
         val answerCalls = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ContextCompat.checkSelfPermission(
                 context,
@@ -118,11 +123,12 @@ object CallManager {
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
 
-        return readPhone && answerCalls && readContacts && audio
+        return readPhone && readCallLog && answerCalls && readContacts && audio
     }
 
     /**
      * Resolves contact name from Contacts provider using phone number.
+     * Uses PhoneLookup first, then falls back to CommonDataKinds.Phone with normalized digits.
      */
     fun resolveContactName(context: Context, rawNumber: String?): String {
         if (rawNumber.isNullOrBlank()) return ""
@@ -132,27 +138,51 @@ object CallManager {
         ) == PackageManager.PERMISSION_GRANTED
 
         if (!hasContactsPermission) {
-            Log.d(TAG, "READ_CONTACTS permission not granted, using raw number")
+            Log.d(TAG, "READ_CONTACTS permission not granted, cannot lookup contact")
             return ""
         }
 
-        return try {
+        val trimmed = rawNumber.trim()
+
+        // 1. Primary lookup: PhoneLookup.CONTENT_FILTER_URI
+        try {
             val uri = Uri.withAppendedPath(
                 ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
-                Uri.encode(rawNumber)
+                Uri.encode(trimmed)
             )
             val projection = arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME)
             context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    cursor.getString(0) ?: ""
-                } else {
-                    ""
+                    val name = cursor.getString(0) ?: ""
+                    if (name.isNotBlank()) return name
                 }
-            } ?: ""
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "Error looking up contact for $rawNumber", e)
-            ""
+            Log.w(TAG, "PhoneLookup failed for $trimmed: ${e.message}")
         }
+
+        // 2. Secondary fallback lookup: CommonDataKinds.Phone with normalized last 10 digits
+        val digitsOnly = trimmed.filter { it.isDigit() }
+        if (digitsOnly.length >= 7) {
+            val searchSuffix = if (digitsOnly.length >= 10) digitsOnly.takeLast(10) else digitsOnly
+            try {
+                val phoneUri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+                val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val selection = "${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ?"
+                val selectionArgs = arrayOf("%$searchSuffix")
+
+                context.contentResolver.query(phoneUri, projection, selection, selectionArgs, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val name = cursor.getString(0) ?: ""
+                        if (name.isNotBlank()) return name
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "CommonDataKinds.Phone lookup failed for $trimmed: ${e.message}")
+            }
+        }
+
+        return ""
     }
 
     /**
@@ -193,8 +223,18 @@ object CallManager {
         // 1. Required debug log: "CALL_INCOMING: caller=<naam/number>"
         DebugLogger.logCallIncoming(callerDisplayName)
 
-        // 2. Announce via TTS in Hindi: "Aapko [naam/number] ki call aa rahi hai"
-        val announcementText = "आपको $callerDisplayName की कॉल आ रही है."
+        // 2. Natural phrasing:
+        // If known contact: "Sir, [naam] ki call aa rahi hai"
+        // If unknown contact: "Sir, ek anjaan number se call aa rahi hai"
+        val announcementText = if (contactName.isNotBlank()) {
+            "Sir, $contactName की कॉल आ रही है."
+        } else {
+            "Sir, एक अनजान नंबर से कॉल आ रही है."
+        }
+
+        val prepDuration = System.currentTimeMillis() - now
+        DebugLogger.logResponseTimeMs(feature = "call_announcement", timeMs = prepDuration)
+
         TtsManager.speakIfVoiceReady(announcementText, caller = "CallAnnounce", onDone = {
             // 3. Required debug log: "CALL_ANNOUNCE: TTS spoken"
             DebugLogger.logCallAnnounce()

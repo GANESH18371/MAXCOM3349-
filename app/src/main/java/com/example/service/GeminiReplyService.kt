@@ -1112,7 +1112,16 @@ object GeminiReplyService {
                 .post(requestBody)
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
+            val timeoutClient = okHttpClient.newBuilder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS)
+                .callTimeout(10, TimeUnit.SECONDS)
+                .build()
+
+            val response = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+                timeoutClient.newCall(request).execute()
+            } ?: return@withContext ""
+
             val responseBody = response.body?.string()
 
             if (response.isSuccessful && !responseBody.isNullOrBlank()) {

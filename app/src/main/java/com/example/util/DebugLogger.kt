@@ -866,13 +866,29 @@ object DebugLogger {
     }
 
     /**
-     * Exact required format: "RESPONSE_TIME_MS: <ms>"
+     * Exact required format: "RESPONSE_TIME_MS: <ms>" or "RESPONSE_TIME_MS: feature=<>, time=<>"
      */
     fun logResponseTimeMs(ms: Long) {
         val logLine = "RESPONSE_TIME_MS: $ms"
         safeLog(Log.INFO, TAG, logLine)
         addEntry(logLine, LogType.INFO)
     }
+
+    fun logResponseTimeMs(feature: String, timeMs: Long) {
+        val logLine = "RESPONSE_TIME_MS: feature=$feature, time=$timeMs"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
+    /**
+     * Exact required format: "IN_APP_ACTION_STEP: step=<1/2/3>, status=<started/success/fail/timeout>, duration_ms=<>"
+     */
+    fun logInAppActionStep(step: String, status: String, durationMs: Long) {
+        val logLine = "IN_APP_ACTION_STEP: step=$step, status=$status, duration_ms=$durationMs"
+        safeLog(Log.INFO, TAG, logLine)
+        addEntry(logLine, LogType.INFO)
+    }
+
 
     /**
      * Exact required format: "UPLOADED_VOICE_QUALITY_CHECK: duration=<>, format=<>, accepted=<true/false>"

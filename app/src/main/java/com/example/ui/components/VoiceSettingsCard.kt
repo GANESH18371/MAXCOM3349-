@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -342,15 +343,18 @@ fun VoiceSettingsCard(
                             containerColor = if (isSelected) CyberCyan else DarkSurfaceVariant
                         ),
                         shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(34.dp)
                     ) {
                         Text(
                             text = label,
-                            fontSize = 10.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) Color.Black else TextSecondary
+                            color = if (isSelected) Color.Black else TextSecondary,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -364,7 +368,9 @@ fun VoiceSettingsCard(
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextMuted,
-                letterSpacing = 1.sp
+                letterSpacing = 1.sp,
+                maxLines = 1,
+                softWrap = false
             )
             Spacer(modifier = Modifier.height(6.dp))
 
@@ -377,22 +383,24 @@ fun VoiceSettingsCard(
                         onClick = { TtsManager.testPhrases(context, 0) },
                         colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
                         shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(36.dp)
                     ) {
-                        Text("▶ YouTube khul gaya", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text("▶ YouTube khul gaya", fontSize = 9.5.sp, color = Color.Black, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                     }
 
                     Button(
                         onClick = { TtsManager.testPhrases(context, 1) },
                         colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
                         shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(36.dp)
                     ) {
-                        Text("▶ WiFi on kar diya", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text("▶ WiFi on kar diya", fontSize = 9.5.sp, color = Color.Black, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                     }
                 }
 
@@ -404,22 +412,24 @@ fun VoiceSettingsCard(
                         onClick = { TtsManager.testPhrases(context, 2) },
                         colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
                         shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(36.dp)
                     ) {
-                        Text("▶ Weather report", fontSize = 10.sp, color = TextPrimary)
+                        Text("▶ Weather report", fontSize = 9.5.sp, color = TextPrimary, maxLines = 1, softWrap = false)
                     }
 
                     Button(
                         onClick = { TtsManager.testPhrases(context, 3) },
                         colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
                         shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(36.dp)
                     ) {
-                        Text("▶ Auto-reply on ho gaya", fontSize = 10.sp, color = TextPrimary)
+                        Text("▶ Auto-reply on ho gaya", fontSize = 9.5.sp, color = TextPrimary, maxLines = 1, softWrap = false)
                     }
                 }
             }
@@ -447,103 +457,120 @@ private fun PresetVoiceCard(
             .clickable { onSelect() }
             .testTag("preset_voice_${preset.id}")
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
+            // Main Top Row: Left-to-right on a single line with generous width
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                RadioButton(
-                    selected = isSelected,
-                    onClick = onSelect,
-                    colors = RadioButtonDefaults.colors(
-                        selectedColor = CyberCyan,
-                        unselectedColor = TextMuted
-                    ),
-                    modifier = Modifier.size(20.dp)
-                )
-
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(accentColor.copy(alpha = 0.15f), CircleShape)
-                        .border(1.dp, accentColor.copy(alpha = 0.5f), CircleShape)
-                ) {
-                    Text(
-                        text = preset.name.first().toString(),
-                        fontWeight = FontWeight.Bold,
-                        color = accentColor,
-                        fontSize = 14.sp
-                    )
-                }
-
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = "${preset.gender} Voice",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Box(
-                            modifier = Modifier
-                                .background(accentColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = preset.gender.uppercase(),
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = accentColor
-                            )
-                        }
-                    }
-                    Text(
-                        text = preset.subtitle,
-                        fontSize = 10.sp,
-                        color = TextSecondary
-                    )
-                }
-            }
-
-            Button(
-                onClick = onSamplePlay,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isSelected) CyberCyan else DarkOutline
-                ),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier
-                    .height(32.dp)
-                    .testTag("play_sample_${preset.id}")
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Sample Sunein",
-                        tint = if (isSelected) Color.Black else TextPrimary,
-                        modifier = Modifier.size(14.dp)
+                    RadioButton(
+                        selected = isSelected,
+                        onClick = onSelect,
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = CyberCyan,
+                            unselectedColor = TextMuted
+                        ),
+                        modifier = Modifier.size(20.dp)
                     )
+
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(accentColor.copy(alpha = 0.15f), CircleShape)
+                            .border(1.dp, accentColor.copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        Text(
+                            text = preset.name.first().toString(),
+                            fontWeight = FontWeight.Bold,
+                            color = accentColor,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+
+                    // Single line, left-to-right, no vertical wrapping
                     Text(
-                        text = "Sample Sunein",
-                        fontSize = 10.sp,
+                        text = "${preset.gender} Voice",
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected) Color.Black else TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        softWrap = false
                     )
+
+                    Box(
+                        modifier = Modifier
+                            .background(accentColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = preset.gender.uppercase(),
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = accentColor,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+
+                // Compact, sleek play sample button
+                Button(
+                    onClick = onSamplePlay,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSelected) CyberCyan else DarkOutline
+                    ),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(30.dp)
+                        .testTag("play_sample_${preset.id}")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Sample",
+                            tint = if (isSelected) Color.Black else TextPrimary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "Sample",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) Color.Black else TextPrimary,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Subtitle on its own full line below, indented past the RadioButton
+            Text(
+                text = preset.subtitle,
+                fontSize = 10.sp,
+                color = TextSecondary,
+                modifier = Modifier.padding(start = 28.dp),
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }

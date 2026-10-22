@@ -91,6 +91,9 @@ fun CallAnnounceCard(
     var hasPhonePerm by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED)
     }
+    var hasCallLogPerm by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED)
+    }
     var hasAnswerPerm by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -107,6 +110,7 @@ fun CallAnnounceCard(
 
     val refreshPermissions = {
         hasPhonePerm = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+        hasCallLogPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
         hasAnswerPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED
         } else true
@@ -275,6 +279,7 @@ fun CallAnnounceCard(
                             onClick = {
                                 val list = mutableListOf(
                                     Manifest.permission.READ_PHONE_STATE,
+                                    Manifest.permission.READ_CALL_LOG,
                                     Manifest.permission.READ_CONTACTS,
                                     Manifest.permission.RECORD_AUDIO
                                 )

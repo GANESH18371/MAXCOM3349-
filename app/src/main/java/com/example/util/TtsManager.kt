@@ -48,18 +48,18 @@ object TtsManager {
         gender = "Male",
         subtitle = "Clear, Warm & Confident • Friendly & Pleasant",
         sampleText = "नमस्ते! मैं मैक्स हूँ। आपकी हर बात सुनने और सहायता करने के लिए हमेशा तैयार हूँ।",
-        preferredKeywords = listOf("-hib-", "-hic-", "-hif-", "-enb-", "-enc-", "male", "hi-in-x-hic", "hi-in-x-hib", "en-in-x-enc"),
-        pitchMultiplier = 0.88f
+        preferredKeywords = listOf("-hia-", "-hid-", "-hie-", "-ena-", "-ene-", "male", "hi-in-x-hia", "hi-in-x-hid", "en-in-x-ena"),
+        pitchMultiplier = 0.98f
     )
 
     val FEMALE = PresetVoice(
         id = "female",
         name = "Female",
         gender = "Female",
-        subtitle = "Articulate, Warm & Expressive • Friendly & Engaging",
+        subtitle = "Articulate, Warm & Expressive • Friendly & Romantic",
         sampleText = "नमस्ते! मैं आपकी दोस्त और असिस्टेंट हूँ। कहिए, आज आपके लिए क्या करूँ?",
-        preferredKeywords = listOf("-hie-", "-hid-", "-hia-", "-ene-", "-end-", "-ena-", "female", "hi-in-x-hie", "hi-in-x-hid", "hi-in-x-hia", "en-in-x-ene"),
-        pitchMultiplier = 1.34f
+        preferredKeywords = listOf("-hic-", "-hib-", "-hif-", "-enc-", "-enb-", "female", "hi-in-x-hic", "hi-in-x-hib", "en-in-x-enc"),
+        pitchMultiplier = 1.08f
     )
 
     // Backward-compatible aliases for legacy references
@@ -236,10 +236,14 @@ object TtsManager {
         if (n.contains("female") || features.any { it.contains("female") } || n.contains("#female")) {
             return true
         }
-        if (n.contains("-hia-") || n.contains("-hid-") || n.contains("-hie-") ||
-            n.contains("-ena-") || n.contains("-end-") || n.contains("-ene-") ||
-            n.contains("hie-") || n.contains("hia-") || n.contains("hid-") ||
-            n.contains("woman") || n.contains("girl")) {
+        if (n.contains("woman") || n.contains("girl")) {
+            return true
+        }
+        // Google TTS Android Hindi / English Female voice identifiers
+        if (n.contains("-hic-") || n.contains("-hib-") || n.contains("-hif-") ||
+            n.contains("-enc-") || n.contains("-enb-") || n.contains("-enf-") ||
+            n.contains("hic-") || n.contains("hib-") || n.contains("hif-") ||
+            n.contains("enc-") || n.contains("enb-")) {
             return true
         }
         return false
@@ -253,10 +257,14 @@ object TtsManager {
         if (n.contains("male") || features.any { it.contains("male") } || n.contains("#male")) {
             return true
         }
-        if (n.contains("-hib-") || n.contains("-hic-") || n.contains("-hif-") ||
-            n.contains("-enb-") || n.contains("-enc-") || n.contains("-enf-") ||
-            n.contains("hib-") || n.contains("hic-") || n.contains("hif-") ||
-            n.contains("man") || n.contains("boy")) {
+        if (n.contains("man") || n.contains("boy")) {
+            return true
+        }
+        // Google TTS Android Hindi / English Male voice identifiers
+        if (n.contains("-hia-") || n.contains("-hid-") || n.contains("-hie-") ||
+            n.contains("-ena-") || n.contains("-ene-") || n.contains("-end-") ||
+            n.contains("hia-") || n.contains("hid-") || n.contains("hie-") ||
+            n.contains("ena-") || n.contains("ene-")) {
             return true
         }
         return false

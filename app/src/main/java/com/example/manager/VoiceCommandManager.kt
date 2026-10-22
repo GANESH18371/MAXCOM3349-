@@ -676,6 +676,9 @@ class VoiceCommandManager(private val context: Context) {
         if (classification.isTask && classification.taskType == "HARDWARE_TOGGLE" && !isMultiIntentCommand(trimmed) && isHardwareCommand(lower)) {
             DebugLogger.logCommandRouterClassification("OFFLINE_TASK")
             handleHardwareVoiceCommand(lower, trimmed)
+            val elapsed = System.currentTimeMillis() - activeCommandStartTime
+            DebugLogger.logResponseTimeMs(elapsed)
+            DebugLogger.logResponseTimeMs(feature = "hardware_toggle", timeMs = elapsed)
             _voiceState.value = VoiceState.Success("Hardware action triggered for \"$trimmed\"")
             return
         }
@@ -697,6 +700,9 @@ class VoiceCommandManager(private val context: Context) {
                     AppContextManager.recordAppOpen(matchedApp)
                 }
                 logTaskConfirmation()
+                val elapsed = System.currentTimeMillis() - activeCommandStartTime
+                DebugLogger.logResponseTimeMs(elapsed)
+                DebugLogger.logResponseTimeMs(feature = "app_open", timeMs = elapsed)
                 val replyMsg = com.example.util.ConfirmationPhraseHelper.getSingleStepConfirmation()
                 AppContextManager.recordConversationExchange(trimmed, replyMsg)
                 _voiceState.value = VoiceState.Success("App opened: $appLabel")
@@ -745,6 +751,7 @@ class VoiceCommandManager(private val context: Context) {
                 fillerJob.cancel()
                 val totalMs = System.currentTimeMillis() - activeCommandStartTime
                 DebugLogger.logResponseTimeMs(totalMs)
+                DebugLogger.logResponseTimeMs(feature = "conversation", timeMs = totalMs)
 
                 val actionsCount = result.actions.size
                 DebugLogger.logCommandUnderstanding(
@@ -873,18 +880,22 @@ class VoiceCommandManager(private val context: Context) {
     private fun tryExecuteCompoundLocalCommand(raw: String): Boolean {
         val lower = raw.lowercase()
         val regex = Regex(" aur | and | phir | fir | tatha | then | khol kar | kholkar | khol ke | kholke | open karke | open kar ")
-        if (!regex.containsMatchIn(lower)) return false
+        val isCompoundConnector = regex.containsMatchIn(lower)
 
-        val parts = raw.split(regex, limit = 2)
-        if (parts.size != 2) return false
+        val hasInAppAction = listOf("search", "play", "chalao", "chala do", "bajao", "baja do", "lagao", "dhoondo", "khojo").any { lower.contains(it) }
+        val hasAppPrefix = lower.contains(" par ") || lower.contains(" pe ") || lower.contains(" me ") || lower.contains(" mein ")
+        val isDirectInApp = !isCompoundConnector && hasInAppAction && hasAppPrefix
 
+        if (!isCompoundConnector && !isDirectInApp) return false
+
+        val parts = if (isCompoundConnector) raw.split(regex, limit = 2) else listOf(raw, raw)
         val part1 = parts[0].trim()
-        val part2 = parts[1].trim()
+        val part2 = if (parts.size > 1) parts[1].trim() else raw
 
         val isHw1 = isHardwareCommand(part1.lowercase())
         val isHw2 = isHardwareCommand(part2.lowercase())
 
-        if (isHw1 && isHw2) {
+        if (isCompoundConnector && isHw1 && isHw2) {
             handleHardwareVoiceCommand(part1.lowercase(), part1)
             scope.launch {
                 delay(300L)
@@ -901,8 +912,8 @@ class VoiceCommandManager(private val context: Context) {
         }
 
         val apps = AppOpenManager.getFreshInstalledApps(context)
-        val app1 = AppOpenManager.fuzzyMatchApp(part1, apps)
-        if (app1 != null && isHw2) {
+        val app1 = if (isCompoundConnector) AppOpenManager.fuzzyMatchApp(part1, apps) else null
+        if (isCompoundConnector && app1 != null && isHw2) {
             val launched = AppOpenManager.launchApp(context, app1)
             if (launched) {
                 AppContextManager.recordAppOpen(app1)
@@ -921,8 +932,8 @@ class VoiceCommandManager(private val context: Context) {
             return true
         }
 
-        // Sequential multi-intent: App 1 open + In-app action / Media in App 1 (e.g. "YouTube kholo aur yeh gana chalao", "YouTube par gana search karo aur lagao", "YouTube khol kar gana search karo")
-        val isInAppAction2 = GenericAppControlManager.isMediaCommand(part2.lowercase()) ||
+        // Sequential multi-intent or direct in-app action (e.g. "YouTube par Arijit Singh search karo aur play karo", "Instagram par travel reels search karo")
+        val isInAppAction2 = isDirectInApp || GenericAppControlManager.isMediaCommand(part2.lowercase()) ||
                 part2.lowercase().let {
                     it.contains("gana") || it.contains("gaana") || it.contains("song") ||
                     it.contains("chalao") || it.contains("play") || it.contains("bajao") ||
@@ -933,7 +944,9 @@ class VoiceCommandManager(private val context: Context) {
 
         val resolvedApp = app1
             ?: apps.find { lower.contains(it.name.lowercase()) }
-            ?: apps.find { it.name.contains("youtube", ignoreCase = true) }
+            ?: apps.find { it.name.contains("youtube", ignoreCase = true) && lower.contains("youtube") }
+            ?: apps.find { it.name.contains("instagram", ignoreCase = true) && lower.contains("instagram") }
+            ?: apps.find { it.name.contains("spotify", ignoreCase = true) && lower.contains("spotify") }
             ?: if (lower.contains("youtube")) InstalledApp("YouTube", "com.google.android.youtube")
                else if (lower.contains("spotify")) InstalledApp("Spotify", "com.spotify.music")
                else if (lower.contains("instagram")) InstalledApp("Instagram", "com.instagram.android")
@@ -941,31 +954,69 @@ class VoiceCommandManager(private val context: Context) {
                else null
 
         if (resolvedApp != null && isInAppAction2) {
+            val step1Start = System.currentTimeMillis()
+            DebugLogger.logInAppActionStep("1", "started", 0L)
+            DebugLogger.logInAppActionStep("app_open", "started", 0L)
+
             val launched = AppOpenManager.launchApp(context, resolvedApp)
+            val step1Duration = System.currentTimeMillis() - step1Start
             if (launched) {
                 AppContextManager.recordAppOpen(resolvedApp)
+                DebugLogger.logInAppActionStep("1", "success", step1Duration)
+                DebugLogger.logInAppActionStep("app_open", "success", step1Duration)
                 DebugLogger.logMultiStepActionStep(4, "app_open", true, "none")
+            } else {
+                DebugLogger.logInAppActionStep("1", "fail", step1Duration)
+                DebugLogger.logInAppActionStep("app_open", "fail", step1Duration)
+                DebugLogger.logMultiStepActionStep(4, "app_open", false, "Could not open ${resolvedApp.name}")
+                val errMsg = "Maaf kijiye, ${resolvedApp.name} open nahi ho paaya."
+                _voiceState.value = VoiceState.Error(errMsg)
+                speakWithFollowUp(errMsg, caller = "ConversationResponse")
+                return true
             }
+
             scope.launch {
-                delay(1200L) // Wait for app UI to settle in foreground
+                delay(1000L) // Wait for app UI to settle in foreground
                 val service = com.example.service.MaxAccessibilityService.instance
-                val actionTarget = if (app1 == null) raw else part2
+                val actionTarget = if (app1 == null || isDirectInApp) raw else part2
                 if (service != null) {
                     service.executeGenericInAppAction(actionTarget) { success, details ->
+                        val totalMs = System.currentTimeMillis() - step1Start
                         DebugLogger.logMultiIntentActions(count = 2, executed = if (success) 2 else 1)
                         DebugLogger.logCommandUnderstanding(input = raw, classifiedAs = "TASK", actionsParsed = 2)
-                        val reply = com.example.util.ConfirmationPhraseHelper.getMultiStepFinalConfirmation() // "Ji Sir, kar diya"
+                        DebugLogger.logResponseTimeMs(totalMs)
+                        DebugLogger.logResponseTimeMs(feature = "in_app_action", timeMs = totalMs)
+                        val reply = if (success) {
+                            com.example.util.ConfirmationPhraseHelper.getMultiStepFinalConfirmation() // "Ji Sir, kar diya"
+                        } else {
+                            "Maaf kijiye, action complete nahi ho paya, screen response nahi kar rahi hai."
+                        }
                         AppContextManager.recordConversationExchange(raw, reply)
-                        _voiceState.value = VoiceState.Success(reply)
+                        if (success) {
+                            _voiceState.value = VoiceState.Success(reply)
+                        } else {
+                            _voiceState.value = VoiceState.Error(reply)
+                        }
                         speakWithFollowUp(reply, caller = "ConversationResponse")
                     }
                 } else {
                     GenericAppControlManager.executeMediaFlow(context, actionTarget) { success, _ ->
+                        val totalMs = System.currentTimeMillis() - step1Start
                         DebugLogger.logMultiIntentActions(count = 2, executed = if (success) 2 else 1)
                         DebugLogger.logCommandUnderstanding(input = raw, classifiedAs = "TASK", actionsParsed = 2)
-                        val reply = com.example.util.ConfirmationPhraseHelper.getMultiStepFinalConfirmation() // "Ji Sir, kar diya"
+                        DebugLogger.logResponseTimeMs(totalMs)
+                        DebugLogger.logResponseTimeMs(feature = "in_app_action", timeMs = totalMs)
+                        val reply = if (success) {
+                            com.example.util.ConfirmationPhraseHelper.getMultiStepFinalConfirmation()
+                        } else {
+                            "Maaf kijiye, media control complete nahi ho saka."
+                        }
                         AppContextManager.recordConversationExchange(raw, reply)
-                        _voiceState.value = VoiceState.Success(reply)
+                        if (success) {
+                            _voiceState.value = VoiceState.Success(reply)
+                        } else {
+                            _voiceState.value = VoiceState.Error(reply)
+                        }
                         speakWithFollowUp(reply, caller = "ConversationResponse")
                     }
                 }

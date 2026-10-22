@@ -787,21 +787,30 @@ class MaxAccessibilityService : AccessibilityService() {
                 val stepsIdentified = if (isSearchAction) 4 else 3
                 var stepsExecuted = 0
 
-                // Step 1: UI Settle & Screen Read
+                // Step 2: UI Settle & Screen Read (Timeout: ~3.6s)
+                val step2Start = System.currentTimeMillis()
+                DebugLogger.logInAppActionStep("2", "started", 0L)
+                DebugLogger.logInAppActionStep("screen_read", "started", 0L)
+
                 var root: AccessibilityNodeInfo? = null
-                for (attempt in 1..6) {
+                for (attempt in 1..12) {
                     delay(300L)
                     root = rootInActiveWindow
                     if (root != null && root.childCount > 0) break
                 }
 
+                val step2Duration = System.currentTimeMillis() - step2Start
                 if (root == null) {
+                    DebugLogger.logInAppActionStep("2", "timeout", step2Duration)
+                    DebugLogger.logInAppActionStep("screen_read", "timeout", step2Duration)
                     DebugLogger.logMultiStepActionStep(stepsIdentified, "screen_read", false, "rootInActiveWindow is null")
                     DebugLogger.logMultiStepAction(stepsIdentified, 0)
-                    onFinished(false, "Screen read failed: window root is null")
+                    onFinished(false, "Screen read timeout: window response nahi de rahi")
                     return@launch
                 }
 
+                DebugLogger.logInAppActionStep("2", "success", step2Duration)
+                DebugLogger.logInAppActionStep("screen_read", "success", step2Duration)
                 DebugLogger.logMultiStepActionStep(stepsIdentified, "screen_read", true, "none")
                 stepsExecuted++
 
@@ -810,128 +819,210 @@ class MaxAccessibilityService : AccessibilityService() {
                     val query = if (rawQuery.isNotBlank()) rawQuery else {
                         if (lowerAction.contains("gana") || lowerAction.contains("gaana") || lowerAction.contains("song")) "trending songs" else ""
                     }
-                    // Step 2: Find search button or edit text
+
+                    // Step 3: Find search button or edit text (Local heuristic first, then Gemini with 10s timeout)
+                    val step3Start = System.currentTimeMillis()
+                    DebugLogger.logInAppActionStep("3", "started", 0L)
+                    DebugLogger.logInAppActionStep("gemini_call", "started", 0L)
+
                     var searchInput = findEditTextNode(root)
+                    var searchBtn: AccessibilityNodeInfo? = null
+
                     if (searchInput == null) {
-                        val searchBtn = findSearchOrComposeButton(root)
+                        searchBtn = findSearchOrComposeButton(root)
                             ?: findNodeWithTextOrDesc(root, "Search")
                             ?: findNodeWithTextOrDesc(root, "खोजें")
                             ?: findNodeWithIdContaining(root, "search")
 
-                        if (searchBtn != null && clickNodeSafely(searchBtn)) {
-                            DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", true, "none")
-                            stepsExecuted++
-                            delay(500L)
-                            root = rootInActiveWindow
-                            searchInput = findEditTextNode(root)
-                        } else {
-                            DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", false, "Search button not found")
+                        if (searchBtn == null) {
+                            // Local heuristic didn't find search button: Fallback to Gemini with timeout
+                            val visibleElements = collectClickableElements(root)
+                            if (visibleElements.isNotEmpty()) {
+                                val resolvedTarget = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+                                    GeminiReplyService.resolveScreenActionTarget(
+                                        actionIntent = "Open search",
+                                        screenElements = visibleElements
+                                    )
+                                }
+                                if (!resolvedTarget.isNullOrBlank() && !resolvedTarget.equals("NONE", ignoreCase = true)) {
+                                    searchBtn = findNodeWithTextOrDesc(root, resolvedTarget)
+                                }
+                            }
                         }
-                    } else {
-                        DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", true, "none")
-                        stepsExecuted++
                     }
 
-                    // Step 3: Type query into search field
+                    val step3Duration = System.currentTimeMillis() - step3Start
+                    if (searchInput == null && searchBtn == null) {
+                        val status = if (step3Duration >= 9_500L) "timeout" else "fail"
+                        DebugLogger.logInAppActionStep("3", status, step3Duration)
+                        DebugLogger.logInAppActionStep("gemini_call", status, step3Duration)
+                        DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", false, "Search UI not found")
+                        onFinished(false, "Screen par search option nahi mila")
+                        return@launch
+                    }
+
+                    DebugLogger.logInAppActionStep("3", "success", step3Duration)
+                    DebugLogger.logInAppActionStep("gemini_call", "success", step3Duration)
+                    DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", true, "none")
+                    stepsExecuted++
+
+                    // Step 4: Tap search and Type query (Timeout: ~8s)
+                    val step4Start = System.currentTimeMillis()
+                    DebugLogger.logInAppActionStep("4", "started", 0L)
+                    DebugLogger.logInAppActionStep("tap_type", "started", 0L)
+
+                    if (searchInput == null && searchBtn != null) {
+                        clickNodeSafely(searchBtn)
+                        delay(600L)
+                        root = rootInActiveWindow
+                        searchInput = findEditTextNode(root)
+                    }
+
                     if (searchInput != null) {
                         if (query.isBlank()) {
+                            val step4Duration = System.currentTimeMillis() - step4Start
+                            DebugLogger.logInAppActionStep("4", "success", step4Duration)
+                            DebugLogger.logInAppActionStep("tap_type", "success", step4Duration)
                             DebugLogger.logMultiStepActionStep(stepsIdentified, "tap_type", true, "none")
                             stepsExecuted++
                             DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
                             onFinished(true, "Search bar opened")
                             return@launch
                         }
-                        val typed = typeTextIntoNode(searchInput, query)
-                            if (typed) {
-                                DebugLogger.logMultiStepActionStep(stepsIdentified, "tap_type", true, "none")
-                                stepsExecuted++
-                                delay(600L)
-                                root = rootInActiveWindow
 
-                                // Step 4: Submit search or click suggestion / play first result
-                                val suggestion = findFirstPlayableResult(root, query)
-                                if (suggestion != null && clickNodeSafely(suggestion)) {
+                        val typed = typeTextIntoNode(searchInput, query)
+                        if (typed) {
+                            delay(600L)
+                            root = rootInActiveWindow
+
+                            // Submit search or click suggestion / play first result
+                            val suggestion = findFirstPlayableResult(root, query)
+                            if (suggestion != null && clickNodeSafely(suggestion)) {
+                                delay(800L)
+                                root = rootInActiveWindow
+                            } else {
+                                val searchActionBtn = findNodeWithTextOrDesc(root, "Search")
+                                    ?: findNodeWithIdContaining(root, "search")
+                                if (searchActionBtn != null) {
+                                    clickNodeSafely(searchActionBtn)
                                     delay(800L)
                                     root = rootInActiveWindow
-                                } else {
-                                    val searchActionBtn = findNodeWithTextOrDesc(root, "Search")
-                                        ?: findNodeWithIdContaining(root, "search")
-                                    if (searchActionBtn != null) {
-                                        clickNodeSafely(searchActionBtn)
-                                        delay(800L)
-                                        root = rootInActiveWindow
-                                    }
                                 }
+                            }
 
-                                val shouldPlay = lowerAction.contains("play") || lowerAction.contains("chalao") ||
-                                        lowerAction.contains("lagao") || lowerAction.contains("bajao")
-                                if (shouldPlay) {
-                                    val playableItem = findFirstPlayableResult(root, query) ?: findFirstClickableItem(root)
-                                    if (playableItem != null && clickNodeSafely(playableItem)) {
-                                        DebugLogger.logMultiStepActionStep(stepsIdentified, "submit_or_play", true, "none")
-                                        stepsExecuted++
-                                        DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
-                                        onFinished(true, "Searched and played '$query'")
-                                        return@launch
-                                    } else {
-                                        DebugLogger.logMultiStepActionStep(stepsIdentified, "submit_or_play", false, "No playable result found")
-                                    }
-                                } else {
+                            val shouldPlay = lowerAction.contains("play") || lowerAction.contains("chalao") ||
+                                    lowerAction.contains("lagao") || lowerAction.contains("bajao")
+                            if (shouldPlay) {
+                                val playableItem = findFirstPlayableResult(root, query) ?: findFirstClickableItem(root)
+                                if (playableItem != null && clickNodeSafely(playableItem)) {
+                                    val step4Duration = System.currentTimeMillis() - step4Start
+                                    DebugLogger.logInAppActionStep("4", "success", step4Duration)
+                                    DebugLogger.logInAppActionStep("tap_type", "success", step4Duration)
                                     DebugLogger.logMultiStepActionStep(stepsIdentified, "submit_or_play", true, "none")
                                     stepsExecuted++
                                     DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
-                                    onFinished(true, "Searched for '$query'")
+                                    onFinished(true, "Searched and played '$query'")
+                                    return@launch
+                                } else {
+                                    val step4Duration = System.currentTimeMillis() - step4Start
+                                    DebugLogger.logInAppActionStep("4", "fail", step4Duration)
+                                    DebugLogger.logInAppActionStep("tap_type", "fail", step4Duration)
+                                    DebugLogger.logMultiStepActionStep(stepsIdentified, "submit_or_play", false, "No playable result found")
+                                    onFinished(false, "Searched for '$query', par playable result nahi mila")
                                     return@launch
                                 }
                             } else {
-                                DebugLogger.logMultiStepActionStep(stepsIdentified, "tap_type", false, "Failed to type into search field")
+                                val step4Duration = System.currentTimeMillis() - step4Start
+                                DebugLogger.logInAppActionStep("4", "success", step4Duration)
+                                DebugLogger.logInAppActionStep("tap_type", "success", step4Duration)
+                                DebugLogger.logMultiStepActionStep(stepsIdentified, "submit_or_play", true, "none")
+                                stepsExecuted++
+                                DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
+                                onFinished(true, "Searched for '$query'")
+                                return@launch
                             }
+                        } else {
+                            val step4Duration = System.currentTimeMillis() - step4Start
+                            DebugLogger.logInAppActionStep("4", "fail", step4Duration)
+                            DebugLogger.logInAppActionStep("tap_type", "fail", step4Duration)
+                            DebugLogger.logMultiStepActionStep(stepsIdentified, "tap_type", false, "Failed to type into search field")
+                            onFinished(false, "Search box me type nahi ho paaya")
+                            return@launch
                         }
+                    } else {
+                        val step4Duration = System.currentTimeMillis() - step4Start
+                        DebugLogger.logInAppActionStep("4", "fail", step4Duration)
+                        DebugLogger.logInAppActionStep("tap_type", "fail", step4Duration)
+                        onFinished(false, "Search input field nahi mila")
+                        return@launch
                     }
+                }
 
                 // If not search or generic element action (subscribe, follow, etc.)
+                val step3Start = System.currentTimeMillis()
+                DebugLogger.logInAppActionStep("3", "started", 0L)
+                DebugLogger.logInAppActionStep("gemini_call", "started", 0L)
+
                 val visibleElements = collectClickableElements(root)
                 var targetNode: AccessibilityNodeInfo? = null
                 var resolvedName = ""
 
-                if (visibleElements.isNotEmpty()) {
-                    val resolvedTarget = GeminiReplyService.resolveScreenActionTarget(
-                        actionIntent = actionDescription,
-                        screenElements = visibleElements
-                    )
-                    if (resolvedTarget.isNotBlank() && !resolvedTarget.equals("NONE", ignoreCase = true)) {
+                // Local keywords check first
+                val actionKeywords = extractKeyTargetWords(lowerAction)
+                for (kw in actionKeywords) {
+                    val match = findNodeWithTextOrDesc(root, kw)
+                    if (match != null) {
+                        targetNode = match
+                        resolvedName = kw
+                        break
+                    }
+                }
+
+                if (targetNode == null && visibleElements.isNotEmpty()) {
+                    val resolvedTarget = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+                        GeminiReplyService.resolveScreenActionTarget(
+                            actionIntent = actionDescription,
+                            screenElements = visibleElements
+                        )
+                    }
+                    if (!resolvedTarget.isNullOrBlank() && !resolvedTarget.equals("NONE", ignoreCase = true)) {
                         targetNode = findNodeWithTextOrDesc(root, resolvedTarget)
                         resolvedName = resolvedTarget
                     }
                 }
 
-                if (targetNode == null) {
-                    val actionKeywords = extractKeyTargetWords(lowerAction)
-                    for (kw in actionKeywords) {
-                        val match = findNodeWithTextOrDesc(root, kw)
-                        if (match != null) {
-                            targetNode = match
-                            resolvedName = kw
-                            break
-                        }
-                    }
-                }
-
+                val step3Duration = System.currentTimeMillis() - step3Start
                 if (targetNode != null) {
+                    DebugLogger.logInAppActionStep("3", "success", step3Duration)
+                    DebugLogger.logInAppActionStep("gemini_call", "success", step3Duration)
                     DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", true, "none")
                     stepsExecuted++
 
+                    val step4Start = System.currentTimeMillis()
+                    DebugLogger.logInAppActionStep("4", "started", 0L)
+                    DebugLogger.logInAppActionStep("tap_type", "started", 0L)
+
                     val clicked = clickNodeSafely(targetNode)
+                    val step4Duration = System.currentTimeMillis() - step4Start
                     if (clicked) {
+                        DebugLogger.logInAppActionStep("4", "success", step4Duration)
+                        DebugLogger.logInAppActionStep("tap_type", "success", step4Duration)
                         DebugLogger.logMultiStepActionStep(stepsIdentified, "tap_type", true, "none")
                         stepsExecuted++
                         DebugLogger.logMultiStepAction(stepsIdentified, stepsExecuted)
                         onFinished(true, "Clicked $resolvedName")
                         return@launch
                     } else {
+                        DebugLogger.logInAppActionStep("4", "fail", step4Duration)
+                        DebugLogger.logInAppActionStep("tap_type", "fail", step4Duration)
                         DebugLogger.logMultiStepActionStep(stepsIdentified, "tap_type", false, "Click failed on $resolvedName")
+                        onFinished(false, "Click failed on $resolvedName")
+                        return@launch
                     }
                 } else {
+                    val status = if (step3Duration >= 9_500L) "timeout" else "fail"
+                    DebugLogger.logInAppActionStep("3", status, step3Duration)
+                    DebugLogger.logInAppActionStep("gemini_call", status, step3Duration)
                     DebugLogger.logMultiStepActionStep(stepsIdentified, "find_element", false, "Element not found on screen")
                 }
 
@@ -940,6 +1031,7 @@ class MaxAccessibilityService : AccessibilityService() {
 
             } catch (e: Exception) {
                 Log.w(TAG, "Error in executeGenericInAppAction", e)
+                DebugLogger.logInAppActionStep("3", "fail", 0L)
                 DebugLogger.logMultiStepActionStep(3, "exception", false, e.message ?: "Unknown error")
                 DebugLogger.logMultiStepAction(3, 0)
                 onFinished(false, e.message ?: "Screen action error")
@@ -948,13 +1040,15 @@ class MaxAccessibilityService : AccessibilityService() {
     }
 
     suspend fun executeGenericInAppActionSuspend(actionDescription: String): Pair<Boolean, String> =
-        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-            executeGenericInAppAction(actionDescription) { success, details ->
-                if (cont.isActive) {
-                    cont.resumeWith(Result.success(Pair(success, details)))
+        kotlinx.coroutines.withTimeoutOrNull(25_000L) {
+            kotlinx.coroutines.suspendCancellableCoroutine<Pair<Boolean, String>> { cont ->
+                executeGenericInAppAction(actionDescription) { success, details ->
+                    if (cont.isActive) {
+                        cont.resumeWith(Result.success(Pair(success, details)))
+                    }
                 }
             }
-        }
+        } ?: Pair(false, "In-app action timed out")
 
     private fun findNodeWithIdContaining(node: AccessibilityNodeInfo?, idSubstring: String): AccessibilityNodeInfo? {
         if (node == null) return null
