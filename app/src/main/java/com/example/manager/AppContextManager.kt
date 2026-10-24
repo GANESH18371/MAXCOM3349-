@@ -112,6 +112,17 @@ object AppContextManager {
      */
     fun recordCurrentPackage(packageName: String, label: String? = null) {
         if (packageName.isBlank() || packageName.startsWith("com.android.systemui")) return
+
+        val isHomeOrLauncher = packageName.contains("launcher", ignoreCase = true) ||
+                packageName.contains("home", ignoreCase = true) ||
+                packageName == "com.example"
+
+        if (isHomeOrLauncher) {
+            _contextState.value = _contextState.value.copy(currentActiveApp = null)
+            DebugLogger.logActiveAppContext("Home Screen")
+            return
+        }
+
         val current = _contextState.value.currentActiveApp
         if (current?.packageName == packageName) return // Already active
 
@@ -206,24 +217,27 @@ object AppContextManager {
 
         val state = _contextState.value
         val items = mutableListOf<String>()
+        val now = System.currentTimeMillis()
 
         state.currentActiveApp?.let {
             items.add("Active app: ${it.name}")
         }
         state.lastHardwareAction?.let {
-            items.add("Last action: ${it.feature.displayName}")
+            if (now - it.timestamp < 300_000L) {
+                items.add("Last action: ${it.feature.displayName}")
+            }
         }
 
         val cleanInteractions = state.recentInteractions.filter { record ->
             when (record) {
-                is InteractionRecord.ConversationExchange -> {
-                    !isCorruptedOrFallback(record.userQuery) && !isCorruptedOrFallback(record.assistantReply)
-                }
-                else -> true
+                is InteractionRecord.AppOpened -> (now - record.timestamp < 600_000L)
+                is InteractionRecord.HardwareToggled -> (now - record.timestamp < 300_000L)
+                is InteractionRecord.ConversationExchange -> (now - record.timestamp < 300_000L) &&
+                        !isCorruptedOrFallback(record.userQuery) && !isCorruptedOrFallback(record.assistantReply)
             }
         }
 
-        val recent = cleanInteractions.take(2)
+        val recent = cleanInteractions.take(3)
         if (recent.isNotEmpty()) {
             recent.forEach { record ->
                 when (record) {
@@ -237,7 +251,7 @@ object AppContextManager {
                 }
             }
         }
-        return if (items.isEmpty()) "None" else items.joinToString("; ")
+        return if (items.isEmpty()) "None" else items.take(3).joinToString("; ")
     }
 
     fun clearMemory() {

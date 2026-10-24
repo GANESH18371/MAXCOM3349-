@@ -236,18 +236,31 @@ object GeminiReplyService {
                 User Hindi, Hinglish ya casual English mein bolta hai. Wake word "मैक्स" ya "Max" ignore karo. Poori baat ek saath samjho; ek se zyada kaam ho to sab actions order mein do.
 
                 ZAROORI STRICT RULE (BAAT-CHEET VS ACTION):
-                - Sirf TABHI action lo jab user CLEARLY kuch KARNE ko keh raha ho (jaise 'kholo', 'on karo', 'band karo', 'chalao' jaise explicit action-verbs ke saath). Agar user sirf BAAT kar raha hai, feeling share kar raha hai, ya kisi cheez ka zikr kar raha hai BINA action maange, to action MAT lo — sirf CONVERSATIONALLY jawab do, jaisa ek dost karta hai.
+                - Sirf TABHI action lo jab user CLEARLY kuch KARNE ko keh raha ho (jaise 'kholo', 'on karo', 'band karo', 'chalao', 'search karo', 'dhoondo', 'subscribe karo', 'follow karo', 'like karo', 'bhejo', 'likho', 'download karo', 'order karo' jaise explicit action-verbs ke saath). Agar user sirf BAAT kar raha hai, feeling share kar raha hai, ya kisi cheez ka zikr kar raha hai BINA action maange, to action MAT lo — sirf CONVERSATIONALLY jawab do, jaisa ek dost karta hai.
                 - False positive action se bacho: Agar user ne bola "aaj maine bluetooth speaker dekha", "wifi ki speed theek aa rahi hai", "youtube par kal ek movie dekhi thi", "aawaz bohot achhi hai", to yeh CONVERSATION hai, koi toggle ya app-open task NAHI. Action list empty rakho: "actions": [{"type":"answer","target":""}].
 
                 Action types:
                 - open_app: target = app ka naam (sirf jab app kholna ho)
-                - in_app_action: target = generic in-app screen task (jaise "search karo [query] aur play karo", "subscribe karo", "unsubscribe karo", "follow karo", "unfollow karo", "like karo", etc.). Agar user command mein kisi app ko khol kar uske andar action karne ko bole (jaise "YouTube par X search karo aur lagao", "Instagram par Y search karo", "subscribe karo", "follow karo"), to DO actions do: pehle open_app (agar app pehle se khuli na ho), phir in_app_action! Agar user pehle se kisi app mein hai (Context mein Active app dikhe) aur app ka naam nahi liya, to default usi active app par in_app_action lagao.
+                - in_app_action: target = generic in-app screen task (jaise "search karo [query] aur play karo", "subscribe karo", "follow karo", "like karo", "message bhejo", etc.).
                 - screen_task: target = screen interaction task jaise "gana search karke play karo", "video chalao", "message bhejo"
                 - toggle: target = torch_on, torch_off, wifi_on, wifi_off, bluetooth_on, bluetooth_off, volume_up, volume_down, volume_mute, brightness_toggle, dnd_on, dnd_off, hotspot_on, hotspot_off, mobile_data_toggle
                 - answer: sawaal ya casual baatcheet. Agar user sirf baat kar raha hai to actions empty rakho: "actions": [{"type":"answer","target":""}]. News maange to target = "news_brief"
                 - unclear: sach mein samajh na aaye to ek chhota sa sawaal poochho
 
-                Explicit request wali indirect baatein (sirf jab user madad maang raha ho):
+                IN-APP ACTIONS AUR MULTI-STEP EXAMPLES (COMPOUND TASKS):
+                - "YouTube par bajjara song search karo aur play karo" -> actions: [{"type":"open_app","target":"YouTube"},{"type":"in_app_action","target":"banjara song search karo aur play karo"}]
+                - "यूट्यूब पर बंजारा सॉन्ग सर्च करो" -> actions: [{"type":"open_app","target":"YouTube"},{"type":"in_app_action","target":"banjara song search karo"}]
+                - "YouTube par Arijit Singh dhoondo" -> actions: [{"type":"open_app","target":"YouTube"},{"type":"in_app_action","target":"Arijit Singh search karo"}]
+                - "Instagram par travel reels dikhao" -> actions: [{"type":"open_app","target":"Instagram"},{"type":"in_app_action","target":"travel reels dikhao"}]
+                - "Is video ko like karo aur channel subscribe karo" -> actions: [{"type":"in_app_action","target":"like karo"},{"type":"in_app_action","target":"subscribe karo"}]
+                - "Channel subscribe karo / follow karo" -> actions: [{"type":"in_app_action","target":"subscribe karo"}]
+                - "WhatsApp par Mummy ko message bhejo" -> actions: [{"type":"open_app","target":"WhatsApp"},{"type":"in_app_action","target":"Mummy ko message bhejo"}]
+                - "Spotify par romantic playlist chalao" -> actions: [{"type":"open_app","target":"Spotify"},{"type":"in_app_action","target":"romantic playlist play karo"}]
+                - "Zomato se khana order karo" -> actions: [{"type":"open_app","target":"Zomato"},{"type":"in_app_action","target":"khana order karo"}]
+                - "WiFi band karo aur torch jala do" -> actions: [{"type":"toggle","target":"wifi_off"},{"type":"toggle","target":"torch_on"}]
+                - "Aaj ka din kaisa raha / tum kaun ho" (Pure conversation) -> actions: [{"type":"answer","target":""}]
+
+                Explicit request wali indirect baatein:
                 - bhookh lagi hai kuch order kar do -> open_app Zomato
                 - bore ho raha hu kuch chalao / youtube chalao -> open_app YouTube
                 - andhera hai torch jala do / light on karo -> toggle torch_on
@@ -261,13 +274,13 @@ object GeminiReplyService {
 
                 Apps: $appsSample
 
-                reply_text: 1 chhota vaakya, maximum 12 shabd, mere style mein, user ki script mein (Devanagari bola to Devanagari, Roman bola to Roman). Kaam complete hone par hamesha consistent style rakho: "Ji Sir, ho gaya" ya action ke saath "Ji Sir, kar diya". News ke liye sirf chhota filler do, jaise "Theek hai, abhi nikalta hoon"; asli khabrein alag se aayengi. Khabrein, tareekh ya facts kabhi khud mat banao.
+                reply_text: 1 chhota vaakya, maximum 12 shabd, mere style mein, user ki script mein (Devanagari bola to Devanagari, Roman bola to Roman). Kaam complete hone par consistent style: "Ji Sir, ho gaya" ya "Ji Sir, kar diya".
 
                 Sirf JSON do:
                 {"understood_intent":"","actions":[{"type":"","target":""}],"reply_text":""}
             """.trimIndent()
 
-            // Requirement 5: Conversation-context Gemini ko bhejte waqt SIRF RECENT (last 2-3) tak LIMITED rakho
+            // Limited context: strictly last 2-3 interactions to avoid confusing Gemini
             val limitedContext = if (contextSummary.isNotBlank() && contextSummary != "None") {
                 contextSummary.split("; ").take(3).joinToString("; ")
             } else {
@@ -279,10 +292,10 @@ object GeminiReplyService {
                 Context: $limitedContext
             """.trimIndent()
 
-            var currentMaxTokens = 600
+            var currentMaxTokens = 300
             var enableThinking = true
 
-            // Helper to build generation payload with thinkingBudget: 0 and configurable maxOutputTokens
+            // Helper to build generation payload with thinkingBudget: 0 and fast maxOutputTokens
             fun buildComprehensionPayload(tokens: Int, withThinking: Boolean): String {
                 val json = JSONObject().apply {
                     val contentsArray = JSONArray().apply {
@@ -305,7 +318,7 @@ object GeminiReplyService {
                     put("systemInstruction", systemInstructionObj)
 
                     val genConfig = JSONObject().apply {
-                        put("temperature", 0.3)
+                        put("temperature", 0.2)
                         put("maxOutputTokens", tokens)
                         put("responseMimeType", "application/json")
                         if (withThinking) {
@@ -386,14 +399,14 @@ object GeminiReplyService {
                         responseBody = response.body?.string()
                     }
 
-                    // 503 (temporary overload) retry with backoff (1.2s wait, max 2 attempts)
+                    // 503 (temporary overload) retry with backoff (1s wait, max 2 attempts)
                     if (response.code == 503) {
                         DebugLogger.logGeminiApiCallStatus(false, 503)
                         DebugLogger.logInfo("Gemini 503 Overloaded. Retrying with backoff (attempt $attempts of $maxRetries)...")
                         if (attempts < maxRetries) {
                             val elapsedNow = SystemClock.elapsedRealtime() - overallStart
-                            if (elapsedNow + 1200L < totalBudgetMs) {
-                                kotlinx.coroutines.delay(1200L)
+                            if (elapsedNow + 1000L < totalBudgetMs) {
+                                kotlinx.coroutines.delay(1000L)
                                 continue
                             }
                         }
@@ -407,26 +420,27 @@ object GeminiReplyService {
                     DebugLogger.logInfo("Gemini attempt $attempts network exception: ${e.message}")
 
                     val elapsedNow = SystemClock.elapsedRealtime() - overallStart
-                    if (elapsedNow >= totalBudgetMs || attempts >= maxRetries) {
+                    if (elapsedNow + 1000L >= totalBudgetMs || attempts >= maxRetries) {
                         DebugLogger.logInfo("Gemini total time budget reached (${elapsedNow}ms). Giving up immediately to prevent long wait.")
                         break
                     }
-                    kotlinx.coroutines.delay(1200L)
+                    kotlinx.coroutines.delay(1000L)
                 }
             }
 
-            // CHECK TRUNCATION (MAX_TOKENS) & AUTOMATICALLY RETRY WITH LARGER TOKEN LIMIT (1200 TOKENS)
+            // CHECK TRUNCATION (MAX_TOKENS) & AUTOMATICALLY RETRY WITH LARGER TOKEN LIMIT ONLY IF TIME BUDGET PERMITS
             if (response != null && response.isSuccessful && !responseBody.isNullOrBlank()) {
                 val testJson = try { JSONObject(responseBody) } catch (_: Exception) { null }
                 val candidateObj = testJson?.optJSONArray("candidates")?.optJSONObject(0)
                 val finishReason = candidateObj?.optString("finishReason", "") ?: ""
                 val rawText = candidateObj?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "")?.trim() ?: ""
                 val isTruncated = finishReason.equals("MAX_TOKENS", ignoreCase = true) ||
-                        (rawText.isNotBlank() && parseComprehensionJson(rawText) == null && currentMaxTokens < 1000)
+                        (rawText.isNotBlank() && parseComprehensionJson(rawText) == null && currentMaxTokens < 600)
 
-                if (isTruncated && currentMaxTokens < 1000) {
-                    DebugLogger.logInfo("Gemini response truncated (finishReason=$finishReason, maxOutputTokens=$currentMaxTokens). Retrying with expanded tokens (maxOutputTokens=1200)...")
-                    currentMaxTokens = 1200
+                val elapsedNow = SystemClock.elapsedRealtime() - overallStart
+                if (isTruncated && currentMaxTokens < 600 && elapsedNow + 3000L < totalBudgetMs) {
+                    DebugLogger.logInfo("Gemini response truncated (finishReason=$finishReason, maxOutputTokens=$currentMaxTokens). Retrying with expanded tokens (maxOutputTokens=600)...")
+                    currentMaxTokens = 600
                     payloadStr = buildComprehensionPayload(currentMaxTokens, enableThinking)
                     try {
                         val retryReq = Request.Builder()
@@ -434,7 +448,7 @@ object GeminiReplyService {
                             .post(payloadStr.toRequestBody("application/json".toMediaType()))
                             .build()
                         response?.close()
-                        response = okHttpClient.newCall(retryReq).execute()
+                        response = callHttpClient.newCall(retryReq).execute()
                         lastHttpCode = response.code
                         responseBody = response.body?.string()
                         DebugLogger.logInfo("Gemini token-expansion retry HTTP $lastHttpCode")
@@ -508,6 +522,15 @@ object GeminiReplyService {
                         isRealGeminiResponse = false
                     )
                 }
+
+                // Return honest slow network message if network or timeout failed
+                DebugLogger.logCommandUnderstanding(userQuery, "CONVERSATION", 1)
+                return@withContext GeminiComprehensionResult(
+                    understoodIntent = "Gemini request failed / timeout",
+                    actions = listOf(ComprehensionAction("answer", "")),
+                    replyText = "Sir, network slow hai, dobara try karein.",
+                    isRealGeminiResponse = false
+                )
             }
         } catch (e: Exception) {
             val errReason = "${e.javaClass.simpleName}: ${e.message}"

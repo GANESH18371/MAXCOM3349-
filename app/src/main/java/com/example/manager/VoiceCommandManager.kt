@@ -243,7 +243,10 @@ class VoiceCommandManager(private val context: Context) {
         val inAppActions = listOf(
             "search", "सर्च", "subscribe", "सब्सक्राइब", "follow", "फॉलो", "like", "लाइक",
             "lagao", "लगाओ", "chalao", "चलाओ", "play", "प्ले", "bajao", "बजाओ",
-            "dhoondo", "ढूंढो", "khojo", "खोजो", "dikhao", "दिखाओ"
+            "dhoondo", "ढूंढो", "khojo", "खोजो", "dikhao", "दिखाओ",
+            "bhejo", "भेजो", "send", "likho", "लिखो", "type",
+            "download", "डाउनलोड", "save", "सेव", "order", "ऑर्डर", "book", "बुक",
+            "comment", "कमेंट", "share", "शेयर"
         )
         val hasInAppAction = inAppActions.any { lower.contains(it) }
         val hasAppPrefix = listOf(
@@ -899,7 +902,9 @@ class VoiceCommandManager(private val context: Context) {
         val hasInAppAction = listOf(
             "search", "सर्च", "play", "प्ले", "chalao", "चलाओ", "chala do", "chala de",
             "bajao", "बजाओ", "baja do", "lagao", "लगाओ", "laga do", "dhoondo", "ढूंढो",
-            "khojo", "खोजो", "dikhao", "दिखाओ"
+            "khojo", "खोजो", "dikhao", "दिखाओ", "subscribe", "सब्सक्राइब", "follow", "फॉलो",
+            "like", "लाइक", "bhejo", "भेजो", "send", "likho", "लिखो", "type", "order", "ऑर्डर",
+            "download", "डाउनलोड", "save", "सेव"
         ).any { lower.contains(it) }
         val hasAppPrefix = lower.contains(" par ") || lower.contains(" pe ") || lower.contains(" me ") || lower.contains(" mein ") ||
                 lower.contains(" पर ") || lower.contains(" पे ") || lower.contains(" में ")
@@ -958,7 +963,9 @@ class VoiceCommandManager(private val context: Context) {
                     it.contains("chalao") || it.contains("चलाओ") || it.contains("play") || it.contains("प्ले") || it.contains("bajao") || it.contains("बजाओ") ||
                     it.contains("search") || it.contains("सर्च") || it.contains("subscribe") || it.contains("सब्सक्राइब") ||
                     it.contains("follow") || it.contains("फॉलो") || it.contains("like") || it.contains("लाइक") || it.contains("lagao") || it.contains("लगाओ") ||
-                    it.contains("dhoondo") || it.contains("ढूंढो") || it.contains("khojo") || it.contains("खोजो")
+                    it.contains("dhoondo") || it.contains("ढूंढो") || it.contains("khojo") || it.contains("खोजो") ||
+                    it.contains("bhejo") || it.contains("भेजो") || it.contains("send") || it.contains("likho") || it.contains("लिखो") ||
+                    it.contains("type") || it.contains("order") || it.contains("download") || it.contains("save")
                 }
 
         val resolvedApp = app1

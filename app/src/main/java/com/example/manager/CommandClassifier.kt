@@ -61,28 +61,58 @@ object CommandClassifier {
         "chalu karo", "chalu kar", "chalu kar do", "चालू करो", "चालू कर"
     )
 
-    // In-app imperative action verbs (Search, Play, Media, Social) in Devanagari, Hinglish & English
+    // In-app imperative action verbs (Search, Play, Media, Social, Messaging, Actions) in Devanagari, Hinglish & English
     val IN_APP_ACTION_VERBS = listOf(
         // Hindi / Devanagari search & find verbs
         "सर्च करो", "सर्च कर दो", "सर्च कर", "सर्च करिए", "सर्च कीजिए", "सर्च",
-        "ढूंढो", "ढूंढ", "ढूंढ कर", "ढूंढिए", "ढूंढ दो", "ढूंढ दे",
-        "खोजो", "खोज", "खोजिए", "खोज दो", "खोज कर",
+        "ढूंढो", "ढूंढ कर", "ढूंढिए", "ढूंढ दो", "ढूंढ दे", "ढूंढ",
+        "खोजो", "खोज कर", "खोजिए", "खोज दो", "खोज",
         "दिखाओ", "दिखाइए", "दिखा दो", "दिखा",
+
+        // Hindi / Devanagari messaging & writing verbs
+        "भेजो", "भेज दो", "भेज दे", "भेज", "सेंड करो", "सेंड कर दो", "सेंड",
+        "लिखो", "लिख दो", "लिख दे", "लिख", "टाइप करो", "टाइप कर दो", "टाइप",
+        "मैसेज करो", "मैसेज भेजो", "कॉल करो", "कॉल लगाओ", "फोन करो", "फोन लगाओ",
+        "रिप्लाई करो", "जवाब दो", "पढ़ो", "पढ़ कर सुनाओ", "पढ़ दो",
+
         // Hindi / Devanagari play & media verbs
         "प्ले करो", "प्ले कर", "प्ले", "चलाओ", "चला", "चला दो", "चलाइए",
         "बजाओ", "बजा", "बजा दो", "लगाओ", "लगा", "लगा दो", "सुनाओ", "सुना", "सुना दो",
+
         // Hindi / Devanagari social verbs
-        "सब्सक्राइब करो", "सब्सक्राइब", "फॉलो करो", "फॉलो", "लाइक करो", "लाइक", "शेयर करो", "शेयर",
-        // English / Hinglish search verbs
+        "सब्सक्राइब करो", "सब्सक्राइब", "फॉलो करो", "फॉलो", "लाइक करो", "लाइक", "पसंद करो",
+        "शेयर करो", "शेयर", "कमेंट करो", "कमेंट", "अनसब्सक्राइब करो", "अनफॉलो करो",
+
+        // Hindi / Devanagari app actions (download, delete, order, book, save, post)
+        "डाउनलोड करो", "डाउनलोड", "डिलीट करो", "हटाओ", "हटा दो", "सेव करो",
+        "पोस्ट करो", "अपलोड करो", "फॉरवर्ड करो", "ऑर्डर करो", "बुक करो", "कॉपी करो", "पेस्ट करो",
+
+        // English / Hinglish search & find verbs
         "search karo", "search kar do", "search kar", "search kariye", "search kijiye", "search",
         "dhoondo", "dhoond do", "dhoond de", "dhoond", "dhoondh", "dhoondho",
-        "khojo", "khoj", "khoj do", "dikhao", "dikha do", "dikha",
-        // English / Hinglish play verbs
+        "khojo", "khoj do", "khoj", "dikhao", "dikha do", "dikha", "find karo", "find",
+
+        // English / Hinglish messaging & writing verbs
+        "bhejo", "bhej do", "bhej de", "bhej", "send karo", "send kar do", "send kar", "send",
+        "likho", "likh do", "likh de", "likh", "type karo", "type kar do", "type kar", "type",
+        "message karo", "message bhejo", "msg karo", "call karo", "call kar do", "call lagao", "call",
+        "reply karo", "reply do", "read karo", "padho", "padh do", "padh ke sunao",
+
+        // English / Hinglish play & media verbs
         "play karo", "play kar do", "play kar", "play", "bajao", "baja do", "baja",
         "lagao", "laga do", "laga", "sunao", "suna do", "suna",
-        // Social verbs
+        "pause karo", "pause", "resume karo", "resume", "skip karo",
+
+        // English / Hinglish social verbs
         "subscribe karo", "subscribe kar do", "subscribe", "follow karo", "follow kar do", "follow",
-        "like karo", "like", "share karo", "share", "unfollow", "unsubscribe"
+        "like karo", "like kar do", "like", "share karo", "share", "comment karo", "comment",
+        "unfollow karo", "unfollow", "unsubscribe karo", "unsubscribe",
+
+        // English / Hinglish app actions (download, delete, order, book, save, post)
+        "download karo", "download kar do", "download", "delete karo", "delete kar do", "delete",
+        "hatao", "hata do", "save karo", "save kar do", "save", "copy karo", "copy",
+        "paste karo", "paste", "post karo", "post kar do", "post", "upload karo", "upload",
+        "forward karo", "forward", "order karo", "order kar do", "order", "book karo", "book kar do", "book"
     )
 
     // Narrative, past-tense, and storytelling markers indicating conversational context
@@ -184,14 +214,19 @@ object CommandClassifier {
         val isCompound = (hasCompoundConnector && (hasHardwareAction || hasAppLaunchVerb || hasInAppActionVerb)) ||
                 (anyKeywordMentioned != null && hasInAppActionVerb)
 
-        if (isCompound && !isConversationalContext) {
-            val taskLabel = if (anyKeywordMentioned != null) "In-app action / compound command for '$anyKeywordMentioned'" else "Multi-intent compound in-app command"
+        if ((isCompound || hasInAppActionVerb) && !isConversationalContext) {
+            val matchedVerb = IN_APP_ACTION_VERBS.firstOrNull { lower.contains(it) } ?: "action"
+            val taskLabel = if (anyKeywordMentioned != null) {
+                "In-app action '$matchedVerb' for '$anyKeywordMentioned'"
+            } else {
+                "In-app action verb '$matchedVerb'"
+            }
             return ClassificationResult(
                 isTask = true,
                 classifiedAs = "TASK",
                 confidence = taskLabel,
                 falsePositiveRisk = "none",
-                taskType = "COMPOUND_TASK"
+                taskType = if (isCompound) "COMPOUND_TASK" else "IN_APP_ACTION"
             )
         }
 

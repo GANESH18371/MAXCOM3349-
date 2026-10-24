@@ -848,12 +848,18 @@ object DebugLogger {
     }
 
     /**
-     * Exact required format: "CLASSIFICATION_DECISION: input=<text>, classified_as=<TASK/CONVERSATION>, confidence=<kyun>, false_positive_risk=<agar koi app/toggle-keyword mention hua tha context me>"
+     * Exact required format: "CLASSIFICATION_DECISION: input=<text>, classified_as=<TASK/CONVERSATION>, confidence=<kyun>"
+     * Optional falsePositiveRisk appended if non-trivial.
      */
-    fun logClassificationDecision(input: String, classifiedAs: String, confidence: String, falsePositiveRisk: String) {
-        val logLine = "CLASSIFICATION_DECISION: input=$input, classified_as=$classifiedAs, confidence=$confidence, false_positive_risk=$falsePositiveRisk"
+    fun logClassificationDecision(input: String, classifiedAs: String, confidence: String, falsePositiveRisk: String = "none") {
+        val riskPart = if (falsePositiveRisk.isNotBlank() && falsePositiveRisk != "none") ", false_positive_risk=$falsePositiveRisk" else ""
+        val logLine = "CLASSIFICATION_DECISION: input=$input, classified_as=$classifiedAs, confidence=$confidence$riskPart"
         safeLog(Log.INFO, TAG, logLine)
         addEntry(logLine, LogType.INFO)
+    }
+
+    fun logClassificationDecision(input: String, classifiedAs: String, confidence: String) {
+        logClassificationDecision(input, classifiedAs, confidence, "none")
     }
 
     /**

@@ -1157,6 +1157,27 @@ class ExampleUnitTest {
         val instaDhoondoHindi = com.example.manager.CommandClassifier.classify("इंस्टाग्राम पर रील ढूंढो", sampleApps)
         assertTrue("इंस्टाग्राम पर रील ढूंढो should be TASK", instaDhoondoHindi.isTask)
         assertEquals("TASK", instaDhoondoHindi.classifiedAs)
+
+        // Expanded action verbs: subscribe karo, follow karo, like karo, bhejo, likho
+        val subscribeTask = com.example.manager.CommandClassifier.classify("channel subscribe karo", sampleApps)
+        assertTrue("channel subscribe karo should be TASK", subscribeTask.isTask)
+        assertEquals("TASK", subscribeTask.classifiedAs)
+
+        val likeTask = com.example.manager.CommandClassifier.classify("video like karo", sampleApps)
+        assertTrue("video like karo should be TASK", likeTask.isTask)
+        assertEquals("TASK", likeTask.classifiedAs)
+
+        val followTask = com.example.manager.CommandClassifier.classify("use follow karo", sampleApps)
+        assertTrue("use follow karo should be TASK", followTask.isTask)
+        assertEquals("TASK", followTask.classifiedAs)
+
+        val messageTask = com.example.manager.CommandClassifier.classify("WhatsApp par message bhejo", sampleApps)
+        assertTrue("WhatsApp par message bhejo should be TASK", messageTask.isTask)
+        assertEquals("TASK", messageTask.classifiedAs)
+
+        val likhoTask = com.example.manager.CommandClassifier.classify("note likho", sampleApps)
+        assertTrue("note likho should be TASK", likhoTask.isTask)
+        assertEquals("TASK", likhoTask.classifiedAs)
     }
 
     @Test
@@ -1168,5 +1189,20 @@ class ExampleUnitTest {
         val logs = DebugLogger.logs.value
         assertTrue(logs.any { it.message == "GEMINI_ATTEMPT_TIMEOUT_MS: attempt=1, configured_timeout=8000ms, actual_time_taken=8120ms" })
         assertTrue(logs.any { it.message == "GEMINI_ATTEMPT_TIMEOUT_MS: attempt=2, configured_timeout=8000ms, actual_time_taken=7950ms" })
+    }
+
+    @Test
+    fun classificationDecision_exactLogFormatTest() {
+        DebugLogger.clearLogs()
+        DebugLogger.logClassificationDecision(
+            input = "channel subscribe karo",
+            classifiedAs = "TASK",
+            confidence = "In-app action verb 'subscribe karo'"
+        )
+
+        val logs = DebugLogger.logs.value
+        assertTrue(logs.any {
+            it.message == "CLASSIFICATION_DECISION: input=channel subscribe karo, classified_as=TASK, confidence=In-app action verb 'subscribe karo'"
+        })
     }
 }
